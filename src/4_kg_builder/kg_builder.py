@@ -264,8 +264,19 @@ def _create_event_node(
 
     ekg.g.add((event_uri, EKG.hasEventType, Literal(event_type)))
     ekg.g.add((event_uri, EKG.hasTime,      Literal(time_raw)))
-    # isMatched: provenance annotation — not declared in T-Box
-    ekg.g.add((event_uri, EKG.isMatched,    Literal(matched)))
+    ekg.g.add((event_uri, EKG.isMatched,    Literal(matched, datatype=XSD.boolean)))
+
+    # hasMinute (decimal) + hasPeriod (integer) — derived from gametime string
+    # "1st 09:34" → period=1, minute=9.567   "2nd 07:30" → period=2, minute=52.5
+    try:
+        half, t  = time_raw.strip().split(" ", 1)
+        mm, ss   = t.strip().split(":")
+        period   = 1 if half == "1st" else 2
+        minute   = int(mm) + int(ss) / 60.0
+        ekg.g.add((event_uri, EKG.hasMinute, Literal(round(minute, 3), datatype=XSD.decimal)))
+        ekg.g.add((event_uri, EKG.hasPeriod, Literal(period,           datatype=XSD.integer)))
+    except Exception:
+        pass   # non-standard gametime format — skip silently
 
     if full_text:
         ekg.g.add((event_uri, EKG.hasFullText,    Literal(full_text)))
@@ -419,7 +430,7 @@ def ingest_matched_event(
         add_participates_in(player_id, match_id, ekg)
     else:
         player_id = None
-        team_id   = None
+        team_id   = get_or_create_team(matched.team, ekg) if matched.team else None
 
     event_id, edges = _create_event_node(
         ekg, match_id, time_raw,

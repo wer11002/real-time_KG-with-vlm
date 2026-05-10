@@ -60,6 +60,7 @@ CLASSES = {
     "FreeKickEvent"      : EKG.FreeKickEvent,
     "SubstitutionEvent"  : EKG.SubstitutionEvent,
     "PenaltyEvent"       : EKG.PenaltyEvent,
+    "PassEvent"          : EKG.PassEvent,
     # card subtypes
     "YellowCardEvent"    : EKG.YellowCardEvent,
     "RedCardEvent"       : EKG.RedCardEvent,
@@ -77,6 +78,7 @@ CLASS_HIERARCHY = [
     (EKG.FreeKickEvent,     EKG.ActionEvent),
     (EKG.SubstitutionEvent, EKG.ActionEvent),
     (EKG.PenaltyEvent,      EKG.ActionEvent),
+    (EKG.PassEvent,         EKG.ActionEvent),
     (EKG.YellowCardEvent,   EKG.CardEvent),
     (EKG.RedCardEvent,      EKG.CardEvent),
 ]
@@ -92,6 +94,7 @@ EVENT_TYPE_CLASS = {
     "Free_Kick"   : EKG.FreeKickEvent,
     "Substitution": EKG.SubstitutionEvent,
     "Penalty"     : EKG.PenaltyEvent,
+    "Pass"        : EKG.PassEvent,
     "YellowCard"  : EKG.YellowCardEvent,
     "RedCard"     : EKG.RedCardEvent,
 }
@@ -134,11 +137,14 @@ INVERSE_PAIRS = [
 
 DATATYPE_PROPERTIES = {
     # ── event ──────────────────────────────────────────────────────────────
-    "hasTime"        : XSD.string,   # "9'" or "45+2'"
+    "hasTime"        : XSD.string,   # "1st 09:34" — human-readable gametime (kept for display)
+    "hasMinute"      : XSD.decimal,  # 9.567 — numeric match minute for SPARQL ORDER BY / filters
+    "hasPeriod"      : XSD.integer,  # 1 or 2 (first/second half) for half-based queries
     "hasEventType"   : XSD.string,   # "Shot" — human-readable label (use rdf:type for reasoning)
     "hasConfidence"  : XSD.float,
     "hasFullText"    : XSD.string,   # commentary text from ESPN
     "hasDate"        : XSD.string,   # "2019-10-01"
+    "isMatched"      : XSD.boolean,  # True if VLM event was matched against ESPN/roster
 
     # ── TKG layer (temporal validity on PLAYS_FOR edges) ──────────────────
     "validFrom"      : XSD.date,

@@ -35,7 +35,7 @@ from typing import List, Dict, Optional
 MODEL_NAME  = "Qwen/Qwen2-VL-7B-Instruct"
 NUM_FRAMES  = 8
 
-VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside"}
+VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside", "Pass"}
 
 # default color map — used as fallback if ESPN colors not loaded
 # overridden at runtime by build_color_map()
@@ -77,12 +77,30 @@ def load_model():
 # DYNAMIC KIT COLOR MAP (C2 fix)
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Named color palette (RGB) for nearest-neighbor matching.
+# Covers common football kit colors; nearest Euclidean distance wins.
+_COLOR_PALETTE: Dict[str, tuple] = {
+    "black"     : (  0,   0,   0),
+    "white"     : (255, 255, 255),
+    "red"       : (220,  20,  20),
+    "maroon"    : (128,   0,   0),
+    "orange"    : (230, 100,   0),
+    "yellow"    : (240, 210,   0),
+    "gold"      : (200, 160,   0),
+    "green"     : (  0, 180,   0),
+    "dark green": (  0, 100,   0),
+    "sky blue"  : (100, 180, 240),
+    "blue"      : ( 20,  60, 200),
+    "dark blue" : (  0,   0, 110),
+    "navy"      : (  0,   0,  60),
+    "purple"    : (130,   0, 150),
+    "pink"      : (240,  80, 150),
+    "gray"      : (130, 130, 130),
+}
+
+
 def hex_to_color_name(hex_color: str) -> str:
-    """
-    Convert ESPN hex color code to a human-readable color name.
-    ESPN gives primary kit color as 6-digit hex (e.g. "0000fa" = blue).
-    Returns a color name the VLM would use to describe the kit.
-    """
+    """Convert ESPN hex color to nearest named color via Euclidean RGB distance."""
     hex_color = hex_color.strip("#").lower()
     try:
         r = int(hex_color[0:2], 16)
@@ -91,37 +109,14 @@ def hex_to_color_name(hex_color: str) -> str:
     except (ValueError, IndexError):
         return "unknown"
 
-    # dominant channel determines color family
-    max_channel = max(r, g, b)
-    brightness  = (r + g + b) / 3
-
-    if brightness < 40:
-        return "black"
-    if brightness > 200 and max_channel == brightness:
-        return "white"
-
-    if r > g and r > b:
-        if r > 150 and g < 80:
-            return "red"
-        return "orange/red"
-
-    if g > r and g > b:
-        if g > 150:
-            return "green"
-        return "dark green"
-
-    if b > r and b > g:
-        if b > 150:
-            return "blue"
-        return "dark blue"
-
-    if r > 150 and g > 150 and b < 80:
-        return "yellow"
-
-    if r > 150 and b > 150 and g < 80:
-        return "purple"
-
-    return "mixed"
+    best_name = "unknown"
+    best_dist = float("inf")
+    for name, (pr, pg, pb) in _COLOR_PALETTE.items():
+        dist = ((r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2) ** 0.5
+        if dist < best_dist:
+            best_dist = dist
+            best_name = name
+    return best_name
 
 
 def build_color_map(
@@ -132,29 +127,24 @@ def build_color_map(
 ) -> Dict[str, Optional[str]]:
     """
     Build a color → team mapping from ESPN hex colors.
-    Called once at pipeline startup with the two teams' primary colors.
-
-    Args:
-        team1      : e.g. "Blackburn Rovers"
-        color1_hex : e.g. "0000fa" (from ESPN API)
-        team2      : e.g. "Nottingham Forest"
-        color2_hex : e.g. "c8102e"
-
-    Returns:
-        {"blue": "Blackburn Rovers", "red": "Nottingham Forest", "white": None}
+    Returns empty dict if both teams resolve to the same color name
+    (collision) — caller falls back to ambiguous multi-team lookup.
     """
     color1 = hex_to_color_name(color1_hex)
     color2 = hex_to_color_name(color2_hex)
 
-    color_map = {
-        color1 : team1,
-        color2 : team2,
-        "white": None,    # away kits often white — ambiguous
-    }
-
     print(f"  [colors] {team1} → #{color1_hex} → {color1}")
     print(f"  [colors] {team2} → #{color2_hex} → {color2}")
 
+    if color1 == color2:
+        print(f"  [colors] WARNING: kit collision — both teams map to '{color1}', color disambiguation disabled")
+        return {}
+
+    color_map: Dict[str, Optional[str]] = {
+        color1: team1,
+        color2: team2,
+        "white": None,    # away kits often white — ambiguous
+    }
     return color_map
 
 
@@ -162,6 +152,44 @@ def set_color_map(color_map: Dict[str, Optional[str]]):
     """Set the global color map. Called from main.py at startup."""
     global _TEAM_COLOR_MAP
     _TEAM_COLOR_MAP = color_map
+
+
+def load_colors_from_game_id(
+    game_id: str,
+    league : str,
+    team1  : str,
+    team2  : str,
+) -> Dict[str, Optional[str]]:
+    """
+    Fetch team colors using a pre-resolved game_id + league.
+    Skips the full scoreboard scan — call this when ESPNScraper already
+    resolved the game_id so we don't hit the ESPN API a third time.
+    """
+    import requests
+
+    url = (f"http://site.api.espn.com/apis/site/v2/sports/soccer"
+           f"/{league}/summary?event={game_id}")
+    try:
+        r          = requests.get(url, timeout=10)
+        data       = r.json()
+        teams_data = {}
+        for team_entry in data.get("rosters", []):
+            t    = team_entry.get("team", {})
+            name = t.get("displayName", "")
+            col  = t.get("color", "")
+            if name and col:
+                teams_data[name] = col
+
+        if len(teams_data) == 2:
+            names  = list(teams_data.keys())
+            colors = list(teams_data.values())
+            color_map = build_color_map(names[0], colors[0], names[1], colors[1])
+            set_color_map(color_map)
+            return color_map
+    except Exception as e:
+        print(f"  [colors] WARNING: failed to load colors: {e}")
+
+    return {}
 
 
 def load_colors_from_espn(date: str, team1: str, team2: str) -> Dict[str, Optional[str]]:
@@ -290,17 +318,18 @@ ACTION_PROMPT = """These 8 frames are sampled evenly from a 60-second soccer cli
 Frame 1 = 0s, frame 2 = ~8s, frame 3 = ~15s, frame 4 = ~23s,
 frame 5 = ~30s, frame 6 = ~38s, frame 7 = ~45s, frame 8 = ~52s.
 
-Identify EVERY key soccer action visible across these frames:
-- Shot (attempt on goal, header, blocked shot)
+Identify only soccer actions that are CLEARLY and UNAMBIGUOUSLY visible in these frames:
+- Shot (attempt on goal, header toward goal, blocked shot)
 - Goal (ball in net, celebration after a goal)
 - Foul (tackle, trip, push, handball, contact)
 - Corner (corner kick being taken)
 - Free_Kick (free kick being taken)
 - Substitution (player being replaced)
 - Offside (offside call, linesman flag)
+- Pass (deliberate pass to a teammate — key passes, long balls, through balls)
 
 For each action, provide the jersey number if readable and the kit color.
-Multiple actions can occur in the same clip — include all of them.
+Only report an action if you can clearly see it happening. If uncertain, omit it.
 
 Respond ONLY with this JSON (no markdown, no extra text):
 {
@@ -423,11 +452,27 @@ def estimate_time(frame_index, frame_times: List[float], duration_sec: float) ->
     return duration_sec / 2.0
 
 
+def _seconds_to_gametime(seconds: float, halftime_sec: float) -> str:
+    """Convert absolute video seconds to match gametime string e.g. '1st 09:37'."""
+    if seconds < halftime_sec:
+        half    = "1st"
+        minutes = int(seconds // 60)
+        secs    = int(seconds % 60)
+    else:
+        half    = "2nd"
+        adj     = seconds - halftime_sec
+        minutes = int(adj // 60)
+        secs    = int(adj % 60)
+    return f"{half} {minutes:02d}:{secs:02d}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # MAIN FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════
 
-def detect_actions(clip_path: str, clip_start_sec: float = 0.0) -> List[Dict]:
+def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
+                   halftime_sec: float = 2700.0,
+                   min_confidence: float = 0.5) -> List[Dict]:
     """
     Main entry point for the pipeline.
     Returns ALL detected actions in the clip.
@@ -449,6 +494,10 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0) -> List[Dict]:
         if action not in VALID_ACTIONS:
             continue
 
+        confidence = float(raw.get("confidence", 0.0))
+        if confidence < min_confidence:
+            continue
+
         time_in_clip = estimate_time(raw.get("frame_index"), frame_times, duration_sec)
         video_time   = clip_start_sec + time_in_clip
         team_color   = raw.get("team_color")
@@ -463,6 +512,7 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0) -> List[Dict]:
             "video_time"  : video_time,
             "time_in_clip": round(time_in_clip, 1),
             "confidence"  : float(raw.get("confidence", 0.5)),
+            "gametime"    : _seconds_to_gametime(video_time, halftime_sec),
         })
 
     return detections

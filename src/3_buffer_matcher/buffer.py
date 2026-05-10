@@ -55,7 +55,7 @@ def make_video_event(detected: dict, clip_start_sec: float, gametime: str) -> Vi
         video_time  = detected["video_time"],
         action      = detected["action"],
         confidence  = detected["confidence"],
-        gametime    = gametime,
+        gametime    = detected.get("gametime", gametime),
         clip_start  = clip_start_sec,
         jersey      = detected.get("jersey"),
         team        = detected.get("team"),
@@ -138,7 +138,7 @@ class EventBuffer:
             # overlapping clips, pushing the time difference past the window.
             time_close   = abs(e.video_time  - new.video_time)  <= self.dedup_window
             clip_overlap = abs(e.clip_start  - new.clip_start)  <= self.dedup_window
-            if time_close or clip_overlap:
+            if time_close and clip_overlap:
                 return e
         return None
 

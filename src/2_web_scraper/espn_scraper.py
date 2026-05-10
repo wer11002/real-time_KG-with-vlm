@@ -140,9 +140,19 @@ class ESPNScraper:
         self._events       : List[Dict] = []
         self._loaded       : bool = False
         self._source       : str  = "none"
+        self._game_id      : Optional[str] = None
+        self._league       : Optional[str] = None
         # dedup tracking — set of (time_rounded, action) tuples
         self._consumed     : Set[Tuple] = set()
         self._consume_count: int = 0
+
+    @property
+    def game_id(self) -> Optional[str]:
+        return self._game_id
+
+    @property
+    def league(self) -> Optional[str]:
+        return self._league
 
     # ── find + load ────────────────────────────────────────────────────────
 
@@ -239,6 +249,8 @@ class ESPNScraper:
         print(f"  [espn] searching for {team1} vs {team2} on {date}...")
 
         game_id, league = self._find_game(date_str, team1, team2)
+        self._game_id = game_id
+        self._league  = league
 
         if game_id:
             print(f"  [espn] found game_id={game_id} in {league}")
@@ -262,13 +274,11 @@ class ESPNScraper:
     def _consume_key(self, time: float, action: str) -> Tuple:
         """
         Generate a consumption key for an event.
-        Rounds to nearest 0.5 minute (30 s) so two real events in the same
-        minute with the same action type get distinct keys, while tiny
-        floating-point differences in ESPN time still hash to the same bucket.
-        (The previous 1-minute rounding silently blocked a second event if two
-        same-type actions occurred within the same minute.)
+        Rounds to nearest 0.1 minute (6 s) — fine enough that two fouls at
+        9:00 and 9:25 get different keys, while floating-point noise in ESPN
+        time (e.g. 9.000 vs 9.001) still collapses to the same bucket.
         """
-        time_rounded = round(time * 2) / 2   # nearest 0.5 min
+        time_rounded = round(time * 10) / 10  # nearest 0.1 min (6 s)
         return (time_rounded, action.strip())
 
     def consume_event(self, time: float, action: str):

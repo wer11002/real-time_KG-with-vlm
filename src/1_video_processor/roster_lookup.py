@@ -44,6 +44,7 @@ class RosterLookup:
         self._game_id  : Optional[str] = None
         self._tier1_attempts : int = 0
         self._tier1_hits     : int = 0
+        self._color_map: dict = {}
 
     # ── find game ──────────────────────────────────────────────────────────
 
@@ -146,10 +147,49 @@ class RosterLookup:
             print(f"  [roster] WARNING: Tier 1 jersey matching will not fire")
             return 0
 
+    def load_from_game_id(self, game_id: str, league: str) -> int:
+        """
+        Load rosters using a pre-resolved game_id + league.
+        Skips the full scoreboard scan — call this when the caller
+        (ESPNScraper) already resolved the game_id.
+        """
+        self._game_id = game_id
+        url = (f"http://site.api.espn.com/apis/site/v2/sports/soccer"
+               f"/{league}/summary?event={game_id}")
+        try:
+            r = requests.get(url, timeout=10)
+            if r.status_code != 200:
+                print(f"  [roster] WARNING: API returned {r.status_code}")
+                return 0
+            data    = r.json()
+            rosters = data.get("rosters", [])
+            total   = 0
+            for team_data in rosters:
+                team_name = team_data.get("team", {}).get("displayName", "")
+                players   = team_data.get("roster", [])
+                self._rosters[team_name] = {}
+                for p in players:
+                    jersey = str(p.get("jersey", "")).strip()
+                    name   = p.get("athlete", {}).get("displayName", "").strip()
+                    if jersey and name:
+                        self._rosters[team_name][jersey] = name
+                        total += 1
+                print(f"  [roster] {team_name}: {len(players)} players loaded")
+            if total > 0:
+                self._loaded = True
+            return total
+        except Exception as e:
+            print(f"  [roster] ERROR: {e}")
+            return 0
+
     def load_manual(self, rosters: Dict[str, Dict[str, str]]):
         """Load rosters manually (for testing)."""
         self._rosters = rosters
         self._loaded  = True
+
+    def set_color_map(self, color_map: dict):
+        """Store the color→team map so find_by_color() can filter by team."""
+        self._color_map = color_map or {}
 
     # ── lookup ─────────────────────────────────────────────────────────────
 
@@ -185,16 +225,28 @@ class RosterLookup:
     def find_by_color(self, jersey: str, color: str) -> List[Dict]:
         """
         Find player by jersey + kit color.
-        Returns all matching candidates (may be ambiguous).
+        Uses stored color map (set via set_color_map()) to narrow by team.
+        Falls back to returning all matching teams if color is unresolvable.
         """
-        jersey = str(jersey).strip().lstrip("#")
+        jersey      = str(jersey).strip().lstrip("#")
+        color_lower = color.lower().strip() if color else ""
+
+        resolved_team = None
+        if self._color_map and color_lower:
+            resolved_team = self._color_map.get(color_lower)
+            if not resolved_team:
+                for key, team in self._color_map.items():
+                    if key and key in color_lower:
+                        resolved_team = team
+                        break
+
         results = []
         for team_name, players in self._rosters.items():
-            if jersey in players:
-                results.append({
-                    "player": players[jersey],
-                    "team"  : team_name,
-                })
+            if jersey not in players:
+                continue
+            if resolved_team and team_name != resolved_team:
+                continue
+            results.append({"player": players[jersey], "team": team_name})
         return results
 
     def get_all_players(self, team: str = None) -> List[Dict]:

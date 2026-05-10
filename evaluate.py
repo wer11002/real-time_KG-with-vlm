@@ -45,7 +45,7 @@ LABELS_PATH = (BASE_DIR / "data" /
                "Labels-ball.json")
 
 HALFTIME_SEC = 2764.0
-KEY_ACTIONS  = {"Shot", "Goal", "Foul", "Corner", "Free_Kick"}
+KEY_ACTIONS  = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Pass"}
 
 ACTION_NORM = {
     "Shot"     : "Shot",
@@ -192,6 +192,9 @@ LABELS_ACTION_MAP = {
     "SHOT"     : "Shot",
     "GOAL"     : "Goal",
     "FREE KICK": "Free_Kick",
+    "PASS"     : "Pass",
+    "HIGH PASS": "Pass",
+    "CROSS"    : "Pass",
 }
 
 # Actions sourced from Labels-ball.json (don't double-load from ESPN CSV)

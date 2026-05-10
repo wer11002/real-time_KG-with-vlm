@@ -38,7 +38,7 @@ from sliding_window    import (
     extract_clip, get_video_duration, seconds_to_gametime,
     delete_clip, TEMP_DIR, get_halftime_sec,
 )
-from action_recognizer import detect_actions, load_model, load_colors_from_espn
+from action_recognizer import detect_actions, load_model, load_colors_from_espn, load_colors_from_game_id
 from buffer            import EventBuffer
 from espn_scraper      import ESPNScraper
 from roster_lookup     import RosterLookup
@@ -194,9 +194,13 @@ def run_match(
         return {}
 
     roster = RosterLookup()
-    roster.load_from_espn(match_date, team1, team2)
-
-    load_colors_from_espn(match_date, team1, team2)
+    if scraper.game_id and scraper.league:
+        roster.load_from_game_id(scraper.game_id, scraper.league)
+        color_map = load_colors_from_game_id(scraper.game_id, scraper.league, team1, team2)
+    else:
+        roster.load_from_espn(match_date, team1, team2)
+        color_map = load_colors_from_espn(match_date, team1, team2)
+    roster.set_color_map(color_map)
 
     # PRE-POPULATE KG with all players before clips run
     print(f"\n  Pre-populating KG with roster...")
@@ -238,7 +242,8 @@ def run_match(
         t_extract = time.time() - t_e0
 
         t_d0       = time.time()
-        detections = detect_actions(str(clip_path), clip_start_sec=start_sec)
+        detections = detect_actions(str(clip_path), clip_start_sec=start_sec,
+                                    halftime_sec=halftime_sec)
         t_detect   = time.time() - t_d0
 
         n_added = buffer.add_from_detections(detections, start_sec, gametime)

@@ -267,7 +267,9 @@ def _create_event_node(
     ekg.g.add((event_uri, EKG.isMatched,    Literal(matched, datatype=XSD.boolean)))
 
     # hasMinute (decimal) + hasPeriod (integer) — derived from gametime string
-    # "1st 09:34" → period=1, minute=9.567   "2nd 07:30" → period=2, minute=52.5
+    # "1st 09:34" → period=1, minute=9.567   "2nd 07:30" → period=2, minute=7.5
+    # NOTE: hasMinute is minute-within-half, not absolute match minute.
+    #       For cross-half queries add (halftime_sec/60) when hasPeriod=2.
     try:
         half, t  = time_raw.strip().split(" ", 1)
         mm, ss   = t.strip().split(":")

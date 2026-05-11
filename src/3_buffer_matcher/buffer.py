@@ -131,11 +131,10 @@ class EventBuffer:
         for e in self._events:
             if e.action != new.action:
                 continue
-            # Two events are duplicates if their video times are close, OR if
-            # their clip windows overlap (clip_start within dedup_window).
-            # The second check catches cases where the VLM reports slightly
-            # different frame times for the same real event across adjacent
-            # overlapping clips, pushing the time difference past the window.
+            # Both conditions must hold: video times must be close AND the
+            # clips must be adjacent (clip_start within dedup_window).
+            # OR would incorrectly deduplicate different events in adjacent
+            # clips (Fix 003 — see log_fix/fix_003_dedup_or_logic.md).
             time_close   = abs(e.video_time  - new.video_time)  <= self.dedup_window
             clip_overlap = abs(e.clip_start  - new.clip_start)  <= self.dedup_window
             if time_close and clip_overlap:

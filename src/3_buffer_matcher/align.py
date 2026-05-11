@@ -45,7 +45,7 @@ ACTION_MAP: Dict[str, List[str]] = {
     "Corner"      : ["Corner"],
     "Offside"     : ["Offside"],
     "Substitution": ["Substitution"],
-    "Pass"        : ["Shot", "Foul"],
+    "Pass"        : [],
 }
 
 
@@ -208,6 +208,7 @@ def match_by_time(
             confidence   = video_event["confidence"],
             gametime     = video_event["gametime"],
             matched      = False,
+            team         = video_event.get("team"),   # preserve VLM-resolved team
             match_method = "unmatched",
             jersey       = jersey,
             description  = description,

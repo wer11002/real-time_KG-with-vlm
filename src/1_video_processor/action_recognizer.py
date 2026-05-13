@@ -1,7 +1,7 @@
 """
 action_recognizer.py
 --------------------
-Detects soccer actions from a 60-second video clip using Qwen2-VL.
+Detects soccer actions from a 60-second video clip using Qwen3-VL.
 
 What's new in this version (C2):
     - Kit colors loaded dynamically from ESPN API hex colors
@@ -10,7 +10,7 @@ What's new in this version (C2):
       ESPN hex → color name → team mapping
     - Works for any match without changing source code
 
-Model: Qwen/Qwen2-VL-7B-Instruct
+Model: Qwen/Qwen3-VL-30B-A3B-Instruct
 
 Setup:
     pip install qwen-vl-utils
@@ -32,10 +32,10 @@ from typing import List, Dict, Optional
 
 
 # ── model config ───────────────────────────────────────────────────────────
-MODEL_NAME  = "Qwen/Qwen2-VL-7B-Instruct"
+MODEL_NAME  = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 NUM_FRAMES  = 8
 
-VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside", "Pass"}
+VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside"}
 
 # default color map — used as fallback if ESPN colors not loaded
 # overridden at runtime by build_color_map()
@@ -49,7 +49,7 @@ _device    = None
 
 
 def load_model():
-    """Load Qwen2-VL model and processor. Called once at startup."""
+    """Load VLM model and processor. Called once at startup."""
     global _model, _processor, _device
 
     if _model is not None:
@@ -57,11 +57,11 @@ def load_model():
 
     print(f"  [model] loading {MODEL_NAME}...")
 
-    from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+    from transformers import AutoModelForVision2Seq, AutoProcessor
 
     _device    = "cuda" if torch.cuda.is_available() else "cpu"
     _processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    _model     = Qwen2VLForConditionalGeneration.from_pretrained(
+    _model     = AutoModelForVision2Seq.from_pretrained(
         MODEL_NAME,
         torch_dtype       = torch.float16 if _device == "cuda" else torch.float32,
         device_map        = "auto",
@@ -326,7 +326,6 @@ Identify only soccer actions that are CLEARLY and UNAMBIGUOUSLY visible in these
 - Free_Kick (free kick being taken)
 - Substitution (player being replaced)
 - Offside (offside call, linesman flag)
-- Pass (deliberate pass to a teammate — key passes, long balls, through balls)
 
 For each action, provide the jersey number if readable and the kit color.
 Only report an action if you can clearly see it happening. If uncertain, omit it.
@@ -395,6 +394,8 @@ def run_inference(frames: List, model, processor, device: str) -> List[Dict]:
     )[0].strip()
 
     try:
+        # strip Qwen3 thinking block if present (outputs <think>...</think> by default)
+        response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
         response = re.sub(r"```json|```", "", response).strip()
         parsed   = json.loads(response)
     except json.JSONDecodeError:
@@ -575,7 +576,7 @@ if __name__ == "__main__":
         clip_start = 0.0
 
     print(f"\n  Clip   : {clip_path}")
-    print(f"  Running Qwen2-VL multi-action detection...\n")
+    print(f"  Running Qwen3-VL multi-action detection...\n")
 
     actions = detect_actions(clip_path, clip_start_sec=clip_start)
 

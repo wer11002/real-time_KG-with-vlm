@@ -151,8 +151,9 @@ DATATYPE_PROPERTIES = {
     "validUntil"     : XSD.date,
 
     # ── VLM layer (from Qwen2-VL output) ─────────────────────────────────
-    "hasDescription" : XSD.string,
-    "detectedJersey" : XSD.string,  # jersey number read by VLM on an event
+    "hasDescription"   : XSD.string,
+    "detectedJersey"   : XSD.string,  # jersey number read by VLM on an event
+    "hasDetectedColor" : XSD.string,  # raw kit color string from VLM (e.g. "blue/white")
 
     # ── Player roster data ────────────────────────────────────────────────
     "hasJerseyNumber": XSD.string,  # permanent squad jersey number on Player node

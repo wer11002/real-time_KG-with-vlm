@@ -45,7 +45,6 @@ ACTION_MAP: Dict[str, List[str]] = {
     "Corner"      : ["Corner"],
     "Offside"     : ["Offside"],
     "Substitution": ["Substitution"],
-    "Pass"        : [],
 }
 
 
@@ -81,6 +80,7 @@ class MatchedEvent:
     # VLM fields (passed through from action_recognizer)
     jersey        : Optional[str]   = None
     description   : Optional[str]   = None
+    team_color    : Optional[str]   = None   # raw kit color e.g. "blue/white"
 
     def to_dict(self):
         return asdict(self)
@@ -174,6 +174,7 @@ def match_by_jersey(
         match_method = "jersey",
         jersey       = jersey,
         description  = description,
+        team_color   = team_color,
     )
 
 
@@ -212,6 +213,7 @@ def match_by_time(
             match_method = "unmatched",
             jersey       = jersey,
             description  = description,
+            team_color   = video_event.get("team_color"),
         )
 
     candidates.sort(key=lambda x: x[0])
@@ -231,6 +233,7 @@ def match_by_time(
         match_method = "time",
         jersey       = jersey,
         description  = description,
+        team_color   = video_event.get("team_color"),
     )
 
 

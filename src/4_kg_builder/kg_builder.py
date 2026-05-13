@@ -241,6 +241,7 @@ def _create_event_node(
     last_event  : dict = None,
     description : Optional[str] = None,   # from VLM
     jersey      : Optional[str] = None,   # from VLM (detectedJersey)
+    team_color  : Optional[str] = None,   # from VLM (raw kit color)
 ) -> Tuple[str, list]:
     """
     Create one Event node + wire standard edges.
@@ -278,7 +279,7 @@ def _create_event_node(
         ekg.g.add((event_uri, EKG.hasMinute, Literal(round(minute, 3), datatype=XSD.decimal)))
         ekg.g.add((event_uri, EKG.hasPeriod, Literal(period,           datatype=XSD.integer)))
     except Exception:
-        pass   # non-standard gametime format — skip silently
+        print(f"  [kg] WARNING: cannot parse hasMinute/hasPeriod from '{time_raw}'")
 
     if full_text:
         ekg.g.add((event_uri, EKG.hasFullText,    Literal(full_text)))
@@ -288,7 +289,9 @@ def _create_event_node(
         ekg.g.add((event_uri, EKG.hasDescription, Literal(description)))
     if jersey:
         # VLM-detected jersey on the event — distinct from hasJerseyNumber on Player
-        ekg.g.add((event_uri, EKG.detectedJersey, Literal(str(jersey))))
+        ekg.g.add((event_uri, EKG.detectedJersey,   Literal(str(jersey))))
+    if team_color:
+        ekg.g.add((event_uri, EKG.hasDetectedColor, Literal(str(team_color))))
 
     new_edges = []
 
@@ -408,6 +411,7 @@ def ingest_matched_event(
     last_event  : dict,
     description : Optional[str] = None,
     jersey      : Optional[str] = None,
+    team_color  : Optional[str] = None,
 ) -> dict:
     """
     Ingest one MatchedEvent from align.py into the RDF graph.
@@ -445,6 +449,7 @@ def ingest_matched_event(
         last_event  = last_event,
         description = description,
         jersey      = jersey,
+        team_color  = team_color,
     )
     new_edges.extend(edges)
 

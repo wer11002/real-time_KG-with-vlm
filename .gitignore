@@ -1,3 +1,5 @@
 *.m4
 sn-spotting/
 data/
+models/*.pth
+logs/

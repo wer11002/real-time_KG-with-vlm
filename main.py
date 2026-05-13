@@ -296,6 +296,7 @@ def run_match(
                         last_event  = last_event,
                         description = m.description,
                         jersey      = m.jersey,
+                        team_color  = m.team_color,
                     )
                     method = f"[{m.match_method}]"
                     player = m.player if m.matched else "?"
@@ -340,7 +341,7 @@ def run_pipeline(
     use_224p      : bool = False,
 ):
     print("\n" + "═"*70)
-    print("  Soccer EKG — Real-Time Pipeline V2 (Qwen2-VL + TKG)")
+    print("  Soccer EKG — Real-Time Pipeline V2 (Qwen3-VL + TKG)")
     print("═"*70)
     print(f"  Matches to process : {len(match_folders)}")
     for f in match_folders:
@@ -351,7 +352,7 @@ def run_pipeline(
     ekg        = EKG_Graph()
     last_event = {}
 
-    print(f"\n  Loading Qwen2-VL model (once, shared across all matches)...")
+    print(f"\n  Loading Qwen3-VL model (once, shared across all matches)...")
     load_model()
 
     t0_total = time.time()

@@ -57,11 +57,11 @@ def load_model():
 
     print(f"  [model] loading {MODEL_NAME}...")
 
-    from transformers import AutoModelForVision2Seq, AutoProcessor
+    from transformers import Qwen3VLMoeForConditionalGeneration, AutoProcessor
 
     _device    = "cuda" if torch.cuda.is_available() else "cpu"
     _processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    _model     = AutoModelForVision2Seq.from_pretrained(
+    _model     = Qwen3VLMoeForConditionalGeneration.from_pretrained(
         MODEL_NAME,
         torch_dtype       = torch.float16 if _device == "cuda" else torch.float32,
         device_map        = "auto",

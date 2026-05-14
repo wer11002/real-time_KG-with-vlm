@@ -322,25 +322,45 @@ def extract_frames(clip_path: str, num_frames: int = NUM_FRAMES):
 # PROMPT
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """You are a soccer match analyst.
-Analyze video frames from a soccer match and identify ALL key events visible.
+SYSTEM_PROMPT = """You are a soccer match analyst reviewing video evidence.
+Your job is to report ONLY actions you can prove happened from the frames.
+When in doubt, report nothing. A missed detection is better than a false one.
 Always respond in valid JSON format only — no other text outside the JSON."""
 
 ACTION_PROMPT = """These 8 frames are sampled evenly from a 60-second soccer clip.
 Frame 1 = 0s, frame 2 = ~8s, frame 3 = ~15s, frame 4 = ~23s,
 frame 5 = ~30s, frame 6 = ~38s, frame 7 = ~45s, frame 8 = ~52s.
 
-Identify only soccer actions that are CLEARLY and UNAMBIGUOUSLY visible in these frames:
-- Shot (attempt on goal, header toward goal, blocked shot)
-- Goal (ball in net, celebration after a goal)
-- Foul (tackle, trip, push, handball, contact)
-- Corner (corner kick being taken)
-- Free_Kick (free kick being taken)
-- Substitution (player being replaced)
-- Offside (offside call, linesman flag)
+IMPORTANT: In a typical 60-second clip there is usually NO scorable action.
+Most clips show normal play — passing, running, positioning. Report nothing
+for those clips. Only report an action when you have clear visual proof.
 
-For each action, provide the jersey number if readable and the full kit colors.
-Only report an action if you can clearly see it happening. If uncertain, omit it.
+Strict criteria — only report if ALL conditions are met:
+
+- Shot: You can see a player's foot or head make CONTACT with the ball AND
+  the ball is visibly moving toward the goal in the same or an adjacent frame.
+  A player in a shooting stance, winding up, or running toward goal is NOT a Shot.
+
+- Goal: The ball is visibly inside the net OR players are celebrating with
+  arms raised directly after the ball crossed the line. Celebration alone
+  without seeing the ball cross is NOT enough.
+
+- Foul: Physical contact between two players is visible AND at least one
+  player falls or the referee is shown with arm raised or card shown.
+  Normal shoulder-to-shoulder challenges are NOT fouls.
+
+- Corner: A player is standing at the corner arc taking a kick from it.
+  A cross from open play is NOT a Corner.
+
+- Free_Kick: A player kicks a stationary ball while opponents form a wall
+  OR the referee has clearly indicated a free kick position.
+
+- Substitution: A player is visibly walking off while another walks on,
+  OR a substitution board is shown.
+
+- Offside: A linesman flag is clearly raised OR the referee signals offside.
+
+For each confirmed action, report the jersey number and kit colors.
 
 Respond ONLY with this JSON (no markdown, no extra text):
 {
@@ -359,7 +379,7 @@ Respond ONLY with this JSON (no markdown, no extra text):
   ]
 }
 
-If no clear soccer actions are visible, return: {"actions": []}"""
+If no action meets the strict criteria above, return: {"actions": []}"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════

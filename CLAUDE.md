@@ -113,6 +113,8 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 014 | Free_Kick prompt softened — "both teams around stationary ball" added to criteria; wall no longer required |
 | 015 | Shot threshold lowered 0.65 → 0.60; safe because gate (013) blocks low-confidence contradicted Shots |
 | 016 | `find_by_color()` missing hit counter — `_tier1_attempts` and `_tier1_hits` now incremented correctly |
+| 017 | `VideoEvent` missing `shorts_color`/`socks_color`/`kit_pattern` — kit fields were silently dropped at buffer stage; now wired through |
+| 018 | `NUM_FRAMES` 16 → 32 (~1 frame/2s); hardcoded timestamp line removed from prompt — FN shots were missing all sampled frames |
 
 ---
 

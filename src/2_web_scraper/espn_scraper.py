@@ -92,10 +92,7 @@ def parse_commentary_event(item: dict) -> Optional[Dict]:
     time_display = clock.get("displayValue", "")
     period       = play.get("period", {}).get("number", 1)
 
-    if period == 1:
-        time_min = time_value / 60.0
-    else:
-        time_min = 45.0 + (time_value / 60.0)
+    time_min = time_value / 60.0  # clock.value is cumulative seconds from kick-off
 
     if time_min <= 0 and not time_display:
         return None
@@ -207,8 +204,18 @@ class ESPNScraper:
                 return 0
             data       = r.json()
             commentary = data.get("commentary", []) or data.get("keyEvents", [])
-            events     = [parse_commentary_event(i) for i in commentary]
-            events     = [e for e in events if e is not None]
+            events = [parse_commentary_event(i) for i in commentary]
+            events = [e for e in events if e is not None]
+            # ESPN commentary often contains duplicate entries for the same event;
+            # deduplicate by (time rounded to 6 s, action, player).
+            seen   = set()
+            unique = []
+            for e in events:
+                key = (round(e["time"] * 10), e["action"], e.get("player") or "")
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(e)
+            events = unique
             if events:
                 self._events = sorted(events, key=lambda e: e["time"])
                 self._source = "api"

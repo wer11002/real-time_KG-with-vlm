@@ -43,7 +43,7 @@ LABELS_PATH = (BASE_DIR / "data" /
                "Labels-ball.json")
 
 HALFTIME_SEC = 2764.0
-KEY_ACTIONS  = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Pass"}
+KEY_ACTIONS  = {"Shot", "Goal", "Foul", "Corner", "Free_Kick"}
 
 ACTION_NORM = {
     "Shot"     : "Shot",

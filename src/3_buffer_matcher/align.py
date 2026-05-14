@@ -368,6 +368,10 @@ def align_buffer(
 
         matched = match_event(v_dict, espn_events, time_tolerance_min, roster_lookup)
 
+        if matched.match_method == "gated":
+            print(f"  [gated] {matched.gametime:<12} {matched.action:<10} "
+                  f"conf={matched.confidence:.2f}  (ESPN nearby: not Shot/Goal)")
+
         # consume the matched ESPN event to prevent duplicate KG nodes
         if matched.matched and matched.espn_time is not None and espn_scraper:
             espn_scraper.consume_event(

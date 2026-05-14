@@ -116,6 +116,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 017 | `VideoEvent` missing `shorts_color`/`socks_color`/`kit_pattern` — kit fields were silently dropped at buffer stage; now wired through |
 | 018 | `NUM_FRAMES` 16 → 32 (~1 frame/2s); hardcoded timestamp line removed from prompt — FN shots were missing all sampled frames |
 | 019 | `pitch_zone` + `body_part` added to VLM output, full pipeline, and KG schema — enables "right-foot from edge of area" commentary without player identity |
+| 020 | `evaluate.py`: ESPN CSV restored for Foul/Corner GT only; default tolerance 2.0 → 0.5 min; gated events logged in `align_buffer()` |
 
 ---
 

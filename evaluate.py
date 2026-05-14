@@ -5,12 +5,12 @@ evaluate.py — Soccer EKG Real Evaluation (D2)
 Reads the ACTUAL pipeline output from ekg.ttl and compares
 against real ground truth sources. No simulation.
 
-Ground truth:
-  Shot      → Labels-ball.json (32 SHOT annotations)
-  Goal      → ESPN CSV (2 goals)
-  Foul      → ESPN CSV (22 fouls)
-  Corner    → ESPN CSV (14 corners)
-  Free_Kick → ESPN CSV (17 free kicks)
+Ground truth (per action type):
+  Shot      → Labels-ball.json  (millisecond-accurate SoccerNet annotations)
+  Goal      → Labels-ball.json
+  Free_Kick → Labels-ball.json
+  Foul      → ESPN CSV          (Labels-ball.json does not annotate fouls)
+  Corner    → ESPN CSV          (Labels-ball.json does not annotate corners)
 
 Pipeline output:
   Reads ekg.ttl → extracts all ActionEvents for Blackburn match
@@ -19,15 +19,16 @@ Pipeline output:
 Matching rule:
   A pipeline event matches a GT event if:
     1. action type matches exactly
-    2. |pipeline_time - gt_time| <= tolerance (default 2.0 min)
+    2. |pipeline_time - gt_time| <= tolerance (default 0.5 min = 30 s)
     3. GT event not already matched (greedy, one-to-one)
 
 Run:
     python evaluate.py                         # default
     python evaluate.py --ttl path/to/ekg.ttl   # custom KG path
-    python evaluate.py --tolerance 1.0          # stricter
+    python evaluate.py --tolerance 1.0          # looser
     python evaluate.py --match blackburn        # specific match
     python evaluate.py --verbose                # show TP/FP/FN detail
+    python evaluate.py --csv path/to/espn.csv  # override ESPN CSV path
 """
 
 import re
@@ -36,11 +37,17 @@ import argparse
 from pathlib import Path
 from collections import Counter
 
+import csv as csv_module
+
 BASE_DIR    = Path(__file__).resolve().parent
 TTL_PATH    = BASE_DIR / "data" / "kg_output" / "ekg.ttl"
 LABELS_PATH = (BASE_DIR / "data" /
                "2019-10-01 - Blackburn Rovers - Nottingham Forest" /
                "Labels-ball.json")
+CSV_PATH    = BASE_DIR / "data" / "blackburn_forest_2019-10-01.csv"
+
+# Actions sourced from ESPN CSV (not in Labels-ball.json)
+CSV_ACTIONS = {"Foul", "Corner"}
 
 HALFTIME_SEC = 2764.0
 KEY_ACTIONS  = {"Shot", "Goal", "Foul", "Corner", "Free_Kick"}
@@ -216,8 +223,43 @@ def load_gt_labels(labels_path: Path) -> list:
     return events
 
 
-def load_ground_truth(labels_path: Path) -> list:
+def load_gt_csv(csv_path: Path, actions: set = None) -> list:
+    """
+    Load GT events from ESPN CSV for action types not in Labels-ball.json.
+    CSV columns expected: Match, Team, Time, Player, Action_Type, Full_Text, ...
+    Only loads rows where Action_Type is in `actions` (default: CSV_ACTIONS).
+    """
+    if actions is None:
+        actions = CSV_ACTIONS
+    events = []
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv_module.DictReader(f)
+        for row in reader:
+            raw_action = row.get("Action_Type", "").strip()
+            action     = ACTION_NORM.get(raw_action, raw_action)
+            if action not in actions:
+                continue
+            t = csv_time_to_min(row.get("Time", "0"))
+            if t > 0:
+                events.append({
+                    "action" : action,
+                    "time_min": t,
+                    "player" : row.get("Player", ""),
+                    "source" : "ESPN CSV",
+                })
+    return events
+
+
+def load_ground_truth(labels_path: Path, csv_path: Path = None) -> list:
+    """
+    Load GT from Labels-ball.json (Shot, Goal, Free_Kick) and optionally
+    from ESPN CSV (Foul, Corner — not covered by Labels-ball.json).
+    """
     gt = load_gt_labels(labels_path)
+    if csv_path and csv_path.exists():
+        gt += load_gt_csv(csv_path, actions=CSV_ACTIONS)
+    elif csv_path:
+        print(f"  WARNING: ESPN CSV not found at {csv_path} — Foul/Corner GT = 0")
     gt.sort(key=lambda e: e["time_min"])
     return gt
 
@@ -227,7 +269,7 @@ def load_ground_truth(labels_path: Path) -> list:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def evaluate(pipeline: list, gt: list,
-             tolerance: float = 2.0,
+             tolerance: float = 0.5,
              matched_only: bool = False) -> dict:
 
     det = [e for e in pipeline
@@ -266,7 +308,7 @@ def evaluate(pipeline: list, gt: list,
         prec  = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         rec   = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         f1    = 2*prec*rec / (prec+rec) if (prec+rec) > 0 else 0.0
-        src   = "Labels-ball.json"
+        src = "ESPN CSV" if action in CSV_ACTIONS else "Labels-ball.json"
         per_action[action] = {
             "tp": tp, "fp": fp, "fn": fn,
             "precision": round(prec, 3),
@@ -415,7 +457,8 @@ def main(args):
         print("  No events found — check --match filter or run the pipeline")
         return
 
-    gt = load_ground_truth(LABELS_PATH)
+    csv_path = Path(args.csv) if args.csv else CSV_PATH
+    gt = load_ground_truth(LABELS_PATH, csv_path=csv_path)
     if args.coverage_min is not None:
         before = len(gt)
         gt = [e for e in gt if e["time_min"] <= args.coverage_min]
@@ -423,8 +466,10 @@ def main(args):
               f"({len(gt)}/{before} GT events in window)")
 
     gt_counts = Counter(e["action"] for e in gt)
+    csv_note  = f" + ESPN CSV ({csv_path.name})" if csv_path.exists() else " (no ESPN CSV)"
 
-    print(f"\n  Ground truth: {len(gt)} events total (Labels-ball.json only)")
+    print(f"\n  Ground truth: {len(gt)} events total "
+          f"(Labels-ball.json{csv_note})")
     for action in sorted(KEY_ACTIONS):
         print(f"    {action:<12} {gt_counts.get(action,0):>3}")
 
@@ -469,14 +514,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ttl",       default=str(TTL_PATH),
                         help="Path to ekg.ttl")
-    parser.add_argument("--tolerance", type=float, default=2.0,
-                        help="Time tolerance in minutes (default 2.0)")
+    parser.add_argument("--tolerance", type=float, default=0.5,
+                        help="Time tolerance in minutes (default 0.5 = 30s)")
     parser.add_argument("--match",     type=str,   default=None,
                         help="Match filter string (default: blackburn)")
     parser.add_argument("--verbose",      action="store_true",
                         help="Show all TP/FP/FN details")
     parser.add_argument("--coverage-min", type=float, default=None,
                         dest="coverage_min",
-                        help="Exclude GT events after this minute (e.g. 3.0 for 5-clip test)")
+                        help="Exclude GT events after this minute (e.g. 35 for 70-clip test)")
+    parser.add_argument("--csv",          type=str,   default=None,
+                        help="Path to ESPN CSV for Foul/Corner GT (default: data/blackburn_forest_2019-10-01.csv)")
     args = parser.parse_args()
     main(args)

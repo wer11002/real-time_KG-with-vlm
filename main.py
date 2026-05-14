@@ -307,6 +307,8 @@ def run_match(
                         shorts_color = m.shorts_color,
                         socks_color  = m.socks_color,
                         kit_pattern  = m.kit_pattern,
+                        pitch_zone   = m.pitch_zone,
+                        body_part    = m.body_part,
                     )
                     method = f"[{m.match_method}]"
                     player = m.player if m.matched else "?"

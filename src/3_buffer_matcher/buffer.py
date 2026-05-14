@@ -38,6 +38,8 @@ class VideoEvent:
     shorts_color : Optional[str] = None
     socks_color  : Optional[str] = None
     kit_pattern  : Optional[str] = None
+    pitch_zone   : Optional[str] = None
+    body_part    : Optional[str] = None
     description  : Optional[str] = None   # VLM natural language description
     detected_at  : str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -66,6 +68,8 @@ def make_video_event(detected: dict, clip_start_sec: float, gametime: str) -> Vi
         shorts_color = detected.get("shorts_color"),
         socks_color  = detected.get("socks_color"),
         kit_pattern  = detected.get("kit_pattern"),
+        pitch_zone   = detected.get("pitch_zone"),
+        body_part    = detected.get("body_part"),
         description  = detected.get("description"),
     )
 

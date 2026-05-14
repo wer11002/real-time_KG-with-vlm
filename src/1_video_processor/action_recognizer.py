@@ -365,7 +365,7 @@ SUBSTITUTION: player walking off the pitch while another walks on,
 
 OFFSIDE: linesman flag is clearly raised, OR referee signals with arm.
 
-For each confirmed action report jersey number and kit colors.
+For each confirmed action report jersey number, kit colors, pitch zone, and body part.
 
 Respond ONLY with this JSON (no markdown, no extra text):
 {
@@ -378,12 +378,15 @@ Respond ONLY with this JSON (no markdown, no extra text):
       "shorts_color": "white" or null,
       "socks_color": "blue" or null,
       "kit_pattern": "solid" or "striped" or "hooped" or null,
-      "description": "one sentence describing the action",
+      "pitch_zone": "penalty_box" or "edge_of_area" or "midfield" or "own_half" or "wing" or null,
+      "body_part": "right_foot" or "left_foot" or "header" or null,
+      "description": "who (jersey#), what technique (left/right foot, header), where on pitch (penalty box / edge of area / midfield)",
       "confidence": 0.0 to 1.0
     }
   ]
 }
 
+pitch_zone applies to ALL actions. body_part applies to Shot and Goal only — set null for other actions.
 If no action meets the strict criteria above, return: {"actions": []}"""
 
 
@@ -569,6 +572,8 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
             "shorts_color": raw.get("shorts_color"),
             "socks_color" : raw.get("socks_color"),
             "kit_pattern" : raw.get("kit_pattern"),
+            "pitch_zone"  : raw.get("pitch_zone"),
+            "body_part"   : raw.get("body_part"),
             "description" : raw.get("description", ""),
             "video_time"  : video_time,
             "time_in_clip": round(time_in_clip, 1),

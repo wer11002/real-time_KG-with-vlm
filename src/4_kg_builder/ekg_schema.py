@@ -157,6 +157,8 @@ DATATYPE_PROPERTIES = {
     "hasDetectedShortsColor": XSD.string,
     "hasDetectedSocksColor" : XSD.string,
     "hasKitPattern"         : XSD.string,  # "solid", "striped", "hooped"
+    "hasPitchZone"          : XSD.string,  # "penalty_box", "edge_of_area", "midfield", "own_half", "wing"
+    "hasBodyPart"           : XSD.string,  # "right_foot", "left_foot", "header"
 
     # ── Player roster data ────────────────────────────────────────────────
     "hasJerseyNumber": XSD.string,  # permanent squad jersey number on Player node

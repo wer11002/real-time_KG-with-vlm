@@ -84,6 +84,8 @@ class MatchedEvent:
     shorts_color  : Optional[str]   = None
     socks_color   : Optional[str]   = None
     kit_pattern   : Optional[str]   = None
+    pitch_zone    : Optional[str]   = None
+    body_part     : Optional[str]   = None
 
     def to_dict(self):
         return asdict(self)
@@ -181,6 +183,8 @@ def match_by_jersey(
         shorts_color = video_event.get("shorts_color"),
         socks_color  = video_event.get("socks_color"),
         kit_pattern  = video_event.get("kit_pattern"),
+        pitch_zone   = video_event.get("pitch_zone"),
+        body_part    = video_event.get("body_part"),
     )
 
 
@@ -212,6 +216,8 @@ def match_by_time(
         "shorts_color": video_event.get("shorts_color"),
         "socks_color" : video_event.get("socks_color"),
         "kit_pattern" : video_event.get("kit_pattern"),
+        "pitch_zone"  : video_event.get("pitch_zone"),
+        "body_part"   : video_event.get("body_part"),
     }
 
     if not candidates:
@@ -353,6 +359,8 @@ def align_buffer(
                 "shorts_color": getattr(v, "shorts_color", None),
                 "socks_color" : getattr(v, "socks_color",  None),
                 "kit_pattern" : getattr(v, "kit_pattern",  None),
+                "pitch_zone"  : getattr(v, "pitch_zone",   None),
+                "body_part"   : getattr(v, "body_part",    None),
                 "description" : getattr(v, "description",  None),
             }
         else:

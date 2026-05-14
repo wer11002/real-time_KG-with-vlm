@@ -245,6 +245,8 @@ def _create_event_node(
     shorts_color : Optional[str] = None,
     socks_color  : Optional[str] = None,
     kit_pattern  : Optional[str] = None,
+    pitch_zone   : Optional[str] = None,
+    body_part    : Optional[str] = None,
 ) -> Tuple[str, list]:
     """
     Create one Event node + wire standard edges.
@@ -300,7 +302,11 @@ def _create_event_node(
     if socks_color:
         ekg.g.add((event_uri, EKG.hasDetectedSocksColor,  Literal(str(socks_color))))
     if kit_pattern:
-        ekg.g.add((event_uri, EKG.hasKitPattern,          Literal(str(kit_pattern))))
+        ekg.g.add((event_uri, EKG.hasKitPattern,  Literal(str(kit_pattern))))
+    if pitch_zone:
+        ekg.g.add((event_uri, EKG.hasPitchZone,   Literal(str(pitch_zone))))
+    if body_part:
+        ekg.g.add((event_uri, EKG.hasBodyPart,    Literal(str(body_part))))
 
     new_edges = []
 
@@ -424,6 +430,8 @@ def ingest_matched_event(
     shorts_color : Optional[str] = None,
     socks_color  : Optional[str] = None,
     kit_pattern  : Optional[str] = None,
+    pitch_zone   : Optional[str] = None,
+    body_part    : Optional[str] = None,
 ) -> dict:
     """
     Ingest one MatchedEvent from align.py into the RDF graph.
@@ -465,6 +473,8 @@ def ingest_matched_event(
         shorts_color = shorts_color,
         socks_color  = socks_color,
         kit_pattern  = kit_pattern,
+        pitch_zone   = pitch_zone,
+        body_part    = body_part,
     )
     new_edges.extend(edges)
 

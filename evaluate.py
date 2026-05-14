@@ -347,7 +347,8 @@ def print_verbose(results: dict):
         g = gt[gi]
         print(f"  ✓ {d.get('time_str','?'):<12} {d['action']:<10} "
               f"pipeline={d['time_min']:.1f}'  "
-              f"GT={g['time_min']:.1f}'  Δ={diff:.2f}min  "
+              f"GT={g['time_min']:.1f}'  Δ={diff:.2f}min"
+              f"{'  ⚠ large Δt' if diff > 1.0 else ''}  "
               f"[{g['source']}]")
 
     print(f"\n{'─'*76}")
@@ -415,6 +416,12 @@ def main(args):
         return
 
     gt = load_ground_truth(LABELS_PATH)
+    if args.coverage_min is not None:
+        before = len(gt)
+        gt = [e for e in gt if e["time_min"] <= args.coverage_min]
+        print(f"\n  Coverage filter: ≤ {args.coverage_min} min "
+              f"({len(gt)}/{before} GT events in window)")
+
     gt_counts = Counter(e["action"] for e in gt)
 
     print(f"\n  Ground truth: {len(gt)} events total (Labels-ball.json only)")
@@ -452,9 +459,6 @@ def main(args):
           f"{r_mat['overall_f1']:>8.3f}  "
           f"{r_mat['n_det']:>8}")
     print(f"{'─'*76}")
-    print(f"  Jersey hit rate: 334/343 = 97.4% (distinct kits)")
-    print(f"  Kit collision  :  47/136 = 34.6% (similar kits — Brentford)")
-    print(f"{'─'*76}")
 
     if args.verbose:
         print("\n\n  === VERBOSE DETAIL: ALL EVENTS ===")
@@ -469,7 +473,10 @@ if __name__ == "__main__":
                         help="Time tolerance in minutes (default 2.0)")
     parser.add_argument("--match",     type=str,   default=None,
                         help="Match filter string (default: blackburn)")
-    parser.add_argument("--verbose",   action="store_true",
+    parser.add_argument("--verbose",      action="store_true",
                         help="Show all TP/FP/FN details")
+    parser.add_argument("--coverage-min", type=float, default=None,
+                        dest="coverage_min",
+                        help="Exclude GT events after this minute (e.g. 3.0 for 5-clip test)")
     args = parser.parse_args()
     main(args)

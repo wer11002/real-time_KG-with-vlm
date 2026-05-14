@@ -239,9 +239,12 @@ def _create_event_node(
     confidence  : Optional[float] = None,
     matched     : bool = True,
     last_event  : dict = None,
-    description : Optional[str] = None,   # from VLM
-    jersey      : Optional[str] = None,   # from VLM (detectedJersey)
-    team_color  : Optional[str] = None,   # from VLM (raw kit color)
+    description  : Optional[str] = None,
+    jersey       : Optional[str] = None,
+    team_color   : Optional[str] = None,
+    shorts_color : Optional[str] = None,
+    socks_color  : Optional[str] = None,
+    kit_pattern  : Optional[str] = None,
 ) -> Tuple[str, list]:
     """
     Create one Event node + wire standard edges.
@@ -291,7 +294,13 @@ def _create_event_node(
         # VLM-detected jersey on the event — distinct from hasJerseyNumber on Player
         ekg.g.add((event_uri, EKG.detectedJersey,   Literal(str(jersey))))
     if team_color:
-        ekg.g.add((event_uri, EKG.hasDetectedColor, Literal(str(team_color))))
+        ekg.g.add((event_uri, EKG.hasDetectedColor,       Literal(str(team_color))))
+    if shorts_color:
+        ekg.g.add((event_uri, EKG.hasDetectedShortsColor, Literal(str(shorts_color))))
+    if socks_color:
+        ekg.g.add((event_uri, EKG.hasDetectedSocksColor,  Literal(str(socks_color))))
+    if kit_pattern:
+        ekg.g.add((event_uri, EKG.hasKitPattern,          Literal(str(kit_pattern))))
 
     new_edges = []
 
@@ -405,13 +414,16 @@ def ingest_event(row: dict, ekg: EKG_Graph, last_event: dict) -> dict:
 
 def ingest_matched_event(
     matched,
-    match_name  : str,
-    match_date  : str,
-    ekg         : EKG_Graph,
-    last_event  : dict,
-    description : Optional[str] = None,
-    jersey      : Optional[str] = None,
-    team_color  : Optional[str] = None,
+    match_name   : str,
+    match_date   : str,
+    ekg          : EKG_Graph,
+    last_event   : dict,
+    description  : Optional[str] = None,
+    jersey       : Optional[str] = None,
+    team_color   : Optional[str] = None,
+    shorts_color : Optional[str] = None,
+    socks_color  : Optional[str] = None,
+    kit_pattern  : Optional[str] = None,
 ) -> dict:
     """
     Ingest one MatchedEvent from align.py into the RDF graph.
@@ -440,16 +452,19 @@ def ingest_matched_event(
 
     event_id, edges = _create_event_node(
         ekg, match_id, time_raw,
-        event_type  = action_type,
-        player_id   = player_id,
-        team_id     = team_id,
-        full_text   = full_text,
-        confidence  = confidence,
-        matched     = matched.matched,
-        last_event  = last_event,
-        description = description,
-        jersey      = jersey,
-        team_color  = team_color,
+        event_type   = action_type,
+        player_id    = player_id,
+        team_id      = team_id,
+        full_text    = full_text,
+        confidence   = confidence,
+        matched      = matched.matched,
+        last_event   = last_event,
+        description  = description,
+        jersey       = jersey,
+        team_color   = team_color,
+        shorts_color = shorts_color,
+        socks_color  = socks_color,
+        kit_pattern  = kit_pattern,
     )
     new_edges.extend(edges)
 

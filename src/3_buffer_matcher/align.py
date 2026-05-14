@@ -80,7 +80,10 @@ class MatchedEvent:
     # VLM fields (passed through from action_recognizer)
     jersey        : Optional[str]   = None
     description   : Optional[str]   = None
-    team_color    : Optional[str]   = None   # raw kit color e.g. "blue/white"
+    team_color    : Optional[str]   = None   # jersey color e.g. "blue/white"
+    shorts_color  : Optional[str]   = None
+    socks_color   : Optional[str]   = None
+    kit_pattern   : Optional[str]   = None
 
     def to_dict(self):
         return asdict(self)
@@ -175,6 +178,9 @@ def match_by_jersey(
         jersey       = jersey,
         description  = description,
         team_color   = team_color,
+        shorts_color = video_event.get("shorts_color"),
+        socks_color  = video_event.get("socks_color"),
+        kit_pattern  = video_event.get("kit_pattern"),
     )
 
 
@@ -202,6 +208,12 @@ def match_by_time(
         if diff <= time_tolerance_min and action_matches(video_action, e["action"]):
             candidates.append((diff, e))
 
+    kit = {
+        "shorts_color": video_event.get("shorts_color"),
+        "socks_color" : video_event.get("socks_color"),
+        "kit_pattern" : video_event.get("kit_pattern"),
+    }
+
     if not candidates:
         return MatchedEvent(
             video_time   = video_event["video_time"],
@@ -209,11 +221,12 @@ def match_by_time(
             confidence   = video_event["confidence"],
             gametime     = video_event["gametime"],
             matched      = False,
-            team         = video_event.get("team"),   # preserve VLM-resolved team
+            team         = video_event.get("team"),
             match_method = "unmatched",
             jersey       = jersey,
             description  = description,
             team_color   = video_event.get("team_color"),
+            **kit,
         )
 
     candidates.sort(key=lambda x: x[0])
@@ -234,6 +247,7 @@ def match_by_time(
         jersey       = jersey,
         description  = description,
         team_color   = video_event.get("team_color"),
+        **kit,
     )
 
 

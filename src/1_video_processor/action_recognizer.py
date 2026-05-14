@@ -37,6 +37,18 @@ NUM_FRAMES  = 8
 
 VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside"}
 
+# Per-action minimum confidence — higher bar for rare/high-stakes events.
+# Actions not listed fall back to the min_confidence parameter (default 0.5).
+CONFIDENCE_THRESHOLDS: Dict[str, float] = {
+    "Goal"        : 0.80,
+    "Shot"        : 0.60,
+    "Foul"        : 0.60,
+    "Corner"      : 0.55,
+    "Free_Kick"   : 0.55,
+    "Substitution": 0.50,
+    "Offside"     : 0.50,
+}
+
 # default color map — used as fallback if ESPN colors not loaded
 # overridden at runtime by build_color_map()
 _TEAM_COLOR_MAP: Dict[str, Optional[str]] = {}
@@ -327,7 +339,7 @@ Identify only soccer actions that are CLEARLY and UNAMBIGUOUSLY visible in these
 - Substitution (player being replaced)
 - Offside (offside call, linesman flag)
 
-For each action, provide the jersey number if readable and the kit color.
+For each action, provide the jersey number if readable and the full kit colors.
 Only report an action if you can clearly see it happening. If uncertain, omit it.
 
 Respond ONLY with this JSON (no markdown, no extra text):
@@ -338,6 +350,9 @@ Respond ONLY with this JSON (no markdown, no extra text):
       "frame_index": 5,
       "jersey": "7" or null,
       "team_color": "blue" or "red" or "white" or null,
+      "shorts_color": "white" or null,
+      "socks_color": "blue" or null,
+      "kit_pattern": "solid" or "striped" or "hooped" or null,
       "description": "one sentence describing the action",
       "confidence": 0.0 to 1.0
     }
@@ -496,7 +511,8 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
             continue
 
         confidence = float(raw.get("confidence", 0.0))
-        if confidence < min_confidence:
+        threshold  = CONFIDENCE_THRESHOLDS.get(action, min_confidence)
+        if confidence < threshold:
             continue
 
         time_in_clip = estimate_time(raw.get("frame_index"), frame_times, duration_sec)
@@ -509,6 +525,9 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
             "jersey"      : raw.get("jersey"),
             "team"        : team,
             "team_color"  : team_color,
+            "shorts_color": raw.get("shorts_color"),
+            "socks_color" : raw.get("socks_color"),
+            "kit_pattern" : raw.get("kit_pattern"),
             "description" : raw.get("description", ""),
             "video_time"  : video_time,
             "time_in_clip": round(time_in_clip, 1),

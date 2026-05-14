@@ -289,14 +289,17 @@ def run_match(
 
                 for m in matched:
                     ingest_matched_event(
-                        matched     = m,
-                        match_name  = match_name,
-                        match_date  = match_date,
-                        ekg         = ekg,
-                        last_event  = last_event,
-                        description = m.description,
-                        jersey      = m.jersey,
-                        team_color  = m.team_color,
+                        matched      = m,
+                        match_name   = match_name,
+                        match_date   = match_date,
+                        ekg          = ekg,
+                        last_event   = last_event,
+                        description  = m.description,
+                        jersey       = m.jersey,
+                        team_color   = m.team_color,
+                        shorts_color = m.shorts_color,
+                        socks_color  = m.socks_color,
+                        kit_pattern  = m.kit_pattern,
                     )
                     method = f"[{m.match_method}]"
                     player = m.player if m.matched else "?"

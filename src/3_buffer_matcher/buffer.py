@@ -146,6 +146,11 @@ class EventBuffer:
     def get_all(self) -> List[VideoEvent]:
         return sorted(self._events, key=lambda e: e.video_time)
 
+    def get_recent(self, current_sec: float, minutes: float = 2.0) -> List[VideoEvent]:
+        """Return events from the last `minutes` relative to current_sec."""
+        cutoff = current_sec - minutes * 60.0
+        return [e for e in self._events if e.video_time >= cutoff]
+
     def size(self) -> int:
         return len(self._events)
 

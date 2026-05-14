@@ -242,8 +242,11 @@ def run_match(
         t_extract = time.time() - t_e0
 
         t_d0       = time.time()
+        recent   = buffer.get_recent(start_sec, minutes=2.0)
+        recent_d = [{"action": e.action, "gametime": e.gametime} for e in recent]
         detections = detect_actions(str(clip_path), clip_start_sec=start_sec,
-                                    halftime_sec=halftime_sec)
+                                    halftime_sec=halftime_sec,
+                                    recent_events=recent_d if recent_d else None)
         t_detect   = time.time() - t_d0
 
         n_added = buffer.add_from_detections(detections, start_sec, gametime)

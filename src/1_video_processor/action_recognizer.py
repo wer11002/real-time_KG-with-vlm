@@ -33,19 +33,19 @@ from typing import List, Dict, Optional
 
 # ── model config ───────────────────────────────────────────────────────────
 MODEL_NAME  = "Qwen/Qwen3-VL-30B-A3B-Instruct"
-NUM_FRAMES  = 8
+NUM_FRAMES  = 16
 
 VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside"}
 
 # Per-action minimum confidence — higher bar for rare/high-stakes events.
 # Actions not listed fall back to the min_confidence parameter (default 0.5).
 CONFIDENCE_THRESHOLDS: Dict[str, float] = {
-    "Goal"        : 0.80,
-    "Shot"        : 0.60,
-    "Foul"        : 0.60,
-    "Corner"      : 0.55,
-    "Free_Kick"   : 0.55,
-    "Substitution": 0.50,
+    "Goal"        : 0.85,
+    "Corner"      : 0.75,
+    "Shot"        : 0.65,
+    "Foul"        : 0.65,
+    "Free_Kick"   : 0.60,
+    "Substitution": 0.55,
     "Offside"     : 0.50,
 }
 
@@ -322,45 +322,50 @@ def extract_frames(clip_path: str, num_frames: int = NUM_FRAMES):
 # PROMPT
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """You are a soccer match analyst reviewing video evidence.
-Your job is to report ONLY actions you can prove happened from the frames.
-When in doubt, report nothing. A missed detection is better than a false one.
+SYSTEM_PROMPT = """You are analyzing frames from a football broadcast.
+Your default answer is {"actions": []}. Only override that default when
+you have unmistakable visual proof of a specific action.
+A missed detection is always better than a false one.
 Always respond in valid JSON format only — no other text outside the JSON."""
 
-ACTION_PROMPT = """These 8 frames are sampled evenly from a 60-second soccer clip.
-Frame 1 = 0s, frame 2 = ~8s, frame 3 = ~15s, frame 4 = ~23s,
-frame 5 = ~30s, frame 6 = ~38s, frame 7 = ~45s, frame 8 = ~52s.
+ACTION_PROMPT = """These 16 frames are sampled evenly from a 60-second football clip.
+Frame 1=0s  Frame 2=4s  Frame 3=8s  Frame 4=12s  Frame 5=16s  Frame 6=20s
+Frame 7=24s  Frame 8=28s  Frame 9=32s  Frame 10=36s  Frame 11=40s  Frame 12=44s
+Frame 13=48s  Frame 14=52s  Frame 15=56s  Frame 16=60s
 
-IMPORTANT: In a typical 60-second clip there is usually NO scorable action.
-Most clips show normal play — passing, running, positioning. Report nothing
-for those clips. Only report an action when you have clear visual proof.
+IMPORTANT: Most 60-second clips contain NO scorable action — just passing,
+running, and positioning. Return {"actions": []} for those clips.
+Only report an action when you have clear visual proof from the frames.
 
-Strict criteria — only report if ALL conditions are met:
+DO NOT report:
+- A player running, dribbling, or positioned near goal
+- A clearance or goalkeeper distribution
+- Broadcast replays (score graphic change, slow-motion replay)
+- Any action you are less than 65% confident about
 
-- Shot: You can see a player's foot or head make CONTACT with the ball AND
-  the ball is visibly moving toward the goal in the same or an adjacent frame.
-  A player in a shooting stance, winding up, or running toward goal is NOT a Shot.
+Strict per-action criteria — ALL conditions must be visible:
 
-- Goal: The ball is visibly inside the net OR players are celebrating with
-  arms raised directly after the ball crossed the line. Celebration alone
-  without seeing the ball cross is NOT enough.
+SHOT: foot or head makes CONTACT with the ball AND the ball is moving
+  toward goal in the same or adjacent frame. Stance or wind-up is NOT a shot.
 
-- Foul: Physical contact between two players is visible AND at least one
-  player falls or the referee is shown with arm raised or card shown.
-  Normal shoulder-to-shoulder challenges are NOT fouls.
+GOAL: ball is visibly crossing the goal line inside the net, OR players
+  are celebrating with arms raised AND the scoreboard changes in a later frame.
 
-- Corner: A player is standing at the corner arc taking a kick from it.
-  A cross from open play is NOT a Corner.
+FOUL: physical contact is visible AND the fouled player falls to the ground
+  OR the referee raises their arm or shows a card.
 
-- Free_Kick: A player kicks a stationary ball while opponents form a wall
-  OR the referee has clearly indicated a free kick position.
+CORNER: player is standing at the corner arc flag taking a kick from it.
+  A cross from open play is NOT a corner.
 
-- Substitution: A player is visibly walking off while another walks on,
-  OR a substitution board is shown.
+FREE_KICK: player kicks a stationary ball with a wall of defenders present,
+  OR referee is shown pointing to a spot before the kick.
 
-- Offside: A linesman flag is clearly raised OR the referee signals offside.
+SUBSTITUTION: player walking off the pitch while another walks on,
+  OR a substitution board with numbers is visible.
 
-For each confirmed action, report the jersey number and kit colors.
+OFFSIDE: linesman flag is clearly raised, OR referee signals with arm.
+
+For each confirmed action report jersey number and kit colors.
 
 Respond ONLY with this JSON (no markdown, no extra text):
 {
@@ -386,14 +391,19 @@ If no action meets the strict criteria above, return: {"actions": []}"""
 # INFERENCE
 # ═══════════════════════════════════════════════════════════════════════════
 
-def run_inference(frames: List, model, processor, device: str) -> List[Dict]:
-    """Run Qwen2-VL on frames. Returns list of raw action dicts."""
+def run_inference(frames: List, model, processor, device: str,
+                  recent_context: str = "") -> List[Dict]:
+    """Run Qwen3-VL on frames. Returns list of raw action dicts."""
     from qwen_vl_utils import process_vision_info
     from PIL import Image as PILImage
 
     pil_images = [PILImage.fromarray(f) for f in frames]
     content    = [{"type": "image", "image": img} for img in pil_images]
-    content.append({"type": "text", "text": ACTION_PROMPT})
+
+    prompt = ACTION_PROMPT
+    if recent_context:
+        prompt += f"\n\n{recent_context}"
+    content.append({"type": "text", "text": prompt})
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -508,7 +518,8 @@ def _seconds_to_gametime(seconds: float, halftime_sec: float) -> str:
 
 def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
                    halftime_sec: float = 2700.0,
-                   min_confidence: float = 0.5) -> List[Dict]:
+                   min_confidence: float = 0.5,
+                   recent_events: Optional[List[Dict]] = None) -> List[Dict]:
     """
     Main entry point for the pipeline.
     Returns ALL detected actions in the clip.
@@ -520,7 +531,17 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
         return []
     frames, duration_sec, frame_times = extracted
 
-    raw_actions = run_inference(frames, model, processor, device)
+    recent_context = ""
+    if recent_events:
+        parts = [f"{e.get('action','?')} at {e.get('gametime','?')}"
+                 for e in recent_events]
+        recent_context = (
+            f"Recent detections in the last 2 minutes: {', '.join(parts)}.\n"
+            f"Do NOT re-detect the same action type within 30 seconds of a prior detection."
+        )
+
+    raw_actions = run_inference(frames, model, processor, device,
+                                recent_context=recent_context)
     if not raw_actions:
         return []
 

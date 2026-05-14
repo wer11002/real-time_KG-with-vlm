@@ -215,6 +215,32 @@ def match_by_time(
     }
 
     if not candidates:
+        # ESPN confirmation gate (Fix 009):
+        # Shot with no Shot/Goal ESPN match but a nearby different ESPN event
+        # and low confidence → mark gated so caller can skip KG ingestion.
+        if video_action == "Shot" and video_event["confidence"] < 0.75:
+            nearest_diff   = float("inf")
+            nearest_action = None
+            for e in espn_events:
+                diff = abs(e["time"] - video_minute)
+                if diff <= time_tolerance_min and diff < nearest_diff:
+                    nearest_diff   = diff
+                    nearest_action = e.get("action")
+            if nearest_action and nearest_action not in {"Shot", "Goal"}:
+                return MatchedEvent(
+                    video_time   = video_event["video_time"],
+                    action       = video_action,
+                    confidence   = video_event["confidence"],
+                    gametime     = video_event["gametime"],
+                    matched      = False,
+                    team         = video_event.get("team"),
+                    match_method = "gated",
+                    jersey       = jersey,
+                    description  = description,
+                    team_color   = video_event.get("team_color"),
+                    **kit,
+                )
+
         return MatchedEvent(
             video_time   = video_event["video_time"],
             action       = video_action,
@@ -231,6 +257,25 @@ def match_by_time(
 
     candidates.sort(key=lambda x: x[0])
     best_diff, best = candidates[0]
+
+    # ESPN confirmation gate: if Shot matched to a non-Shot/Goal ESPN event
+    # (possible if ACTION_MAP is broadened) and confidence is low, downgrade.
+    if (video_action == "Shot"
+            and best.get("action") not in {"Shot", "Goal"}
+            and video_event["confidence"] < 0.75):
+        return MatchedEvent(
+            video_time   = video_event["video_time"],
+            action       = video_action,
+            confidence   = video_event["confidence"],
+            gametime     = video_event["gametime"],
+            matched      = False,
+            team         = video_event.get("team"),
+            match_method = "gated",
+            jersey       = jersey,
+            description  = description,
+            team_color   = video_event.get("team_color"),
+            **kit,
+        )
 
     return MatchedEvent(
         video_time   = video_event["video_time"],

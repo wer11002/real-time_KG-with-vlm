@@ -291,6 +291,10 @@ def run_match(
                 print(f"\n  Ingesting into EKG:")
 
                 for m in matched:
+                    if m.match_method == "gated":
+                        print(f"   GATED    {m.gametime:<12} {m.action:<10} → "
+                              f"conf={m.confidence:.2f} (ESPN contradicts, skipped)")
+                        continue
                     ingest_matched_event(
                         matched      = m,
                         match_name   = match_name,

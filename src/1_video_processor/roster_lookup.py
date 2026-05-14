@@ -228,6 +228,7 @@ class RosterLookup:
         Uses stored color map (set via set_color_map()) to narrow by team.
         Falls back to returning all matching teams if color is unresolvable.
         """
+        self._tier1_attempts += 1
         jersey      = str(jersey).strip().lstrip("#")
         color_lower = color.lower().strip() if color else ""
 
@@ -247,6 +248,9 @@ class RosterLookup:
             if resolved_team and team_name != resolved_team:
                 continue
             results.append({"player": players[jersey], "team": team_name})
+
+        if results:
+            self._tier1_hits += 1
         return results
 
     def get_all_players(self, team: str = None) -> List[Dict]:

@@ -105,6 +105,14 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 006 | `hex_to_color_name()` → nearest-neighbor RGB distance; collision detection returns `{}` |
 | 007 | ESPN triple-scan at startup → shared `game_id` cuts worst-case 66 → 23 API calls |
 | 008 | Consume key 30s bucket → 6s; two fouls 25s apart no longer share a key |
+| 009 | SYSTEM_PROMPT rewrite (default empty), per-action strict criteria, 16 frames — precision 14% → 100% on 12-clip test |
+| 010 | Recent context injection — last 2-min buffer events passed to VLM to suppress re-detection of same action |
+| 011 | Shorts/socks/kit_pattern fields added to VLM output, `MatchedEvent`, KG schema (`hasDetectedShortsColor` etc.) |
+| 012 | `evaluate.py` ESPN CSV dependency removed; `--coverage-min` flag added; `Pass` removed from `KEY_ACTIONS` |
+| 013 | ESPN confirmation gate — Shot with nearby non-Shot/Goal ESPN event + conf < 0.75 is gated (not ingested into KG) |
+| 014 | Free_Kick prompt softened — "both teams around stationary ball" added to criteria; wall no longer required |
+| 015 | Shot threshold lowered 0.65 → 0.60; safe because gate (013) blocks low-confidence contradicted Shots |
+| 016 | `find_by_color()` missing hit counter — `_tier1_attempts` and `_tier1_hits` now incremented correctly |
 
 ---
 

@@ -35,6 +35,9 @@ class VideoEvent:
     jersey       : Optional[str] = None   # jersey number e.g. "7"
     team         : Optional[str] = None   # resolved team name
     team_color   : Optional[str] = None   # raw color e.g. "blue/white"
+    shorts_color : Optional[str] = None
+    socks_color  : Optional[str] = None
+    kit_pattern  : Optional[str] = None
     description  : Optional[str] = None   # VLM natural language description
     detected_at  : str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -57,10 +60,13 @@ def make_video_event(detected: dict, clip_start_sec: float, gametime: str) -> Vi
         confidence  = detected["confidence"],
         gametime    = detected.get("gametime", gametime),
         clip_start  = clip_start_sec,
-        jersey      = detected.get("jersey"),
-        team        = detected.get("team"),
-        team_color  = detected.get("team_color"),
-        description = detected.get("description"),
+        jersey       = detected.get("jersey"),
+        team         = detected.get("team"),
+        team_color   = detected.get("team_color"),
+        shorts_color = detected.get("shorts_color"),
+        socks_color  = detected.get("socks_color"),
+        kit_pattern  = detected.get("kit_pattern"),
+        description  = detected.get("description"),
     )
 
 

@@ -33,7 +33,7 @@ from typing import List, Dict, Optional
 
 # ── model config ───────────────────────────────────────────────────────────
 MODEL_NAME  = "Qwen/Qwen3-VL-30B-A3B-Instruct"
-NUM_FRAMES  = 16
+NUM_FRAMES  = 32
 
 VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside"}
 
@@ -328,10 +328,8 @@ you have unmistakable visual proof of a specific action.
 A missed detection is always better than a false one.
 Always respond in valid JSON format only — no other text outside the JSON."""
 
-ACTION_PROMPT = """These 16 frames are sampled evenly from a 60-second football clip.
-Frame 1=0s  Frame 2=4s  Frame 3=8s  Frame 4=12s  Frame 5=16s  Frame 6=20s
-Frame 7=24s  Frame 8=28s  Frame 9=32s  Frame 10=36s  Frame 11=40s  Frame 12=44s
-Frame 13=48s  Frame 14=52s  Frame 15=56s  Frame 16=60s
+ACTION_PROMPT = """These 32 frames are sampled evenly from a 60-second football clip
+(one frame roughly every 2 seconds).
 
 IMPORTANT: Most 60-second clips contain NO scorable action — just passing,
 running, and positioning. Return {"actions": []} for those clips.

@@ -347,10 +347,13 @@ def align_buffer(
                 "action"      : v.action,
                 "confidence"  : v.confidence,
                 "gametime"    : v.gametime,
-                "jersey"      : getattr(v, "jersey",      None),
-                "team"        : getattr(v, "team",        None),
-                "team_color"  : getattr(v, "team_color",  None),
-                "description" : getattr(v, "description", None),
+                "jersey"      : getattr(v, "jersey",       None),
+                "team"        : getattr(v, "team",         None),
+                "team_color"  : getattr(v, "team_color",   None),
+                "shorts_color": getattr(v, "shorts_color", None),
+                "socks_color" : getattr(v, "socks_color",  None),
+                "kit_pattern" : getattr(v, "kit_pattern",  None),
+                "description" : getattr(v, "description",  None),
             }
         else:
             v_dict = v

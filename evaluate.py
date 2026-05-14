@@ -31,7 +31,6 @@ Run:
 """
 
 import re
-import sys
 import json
 import argparse
 from pathlib import Path
@@ -42,9 +41,6 @@ TTL_PATH    = BASE_DIR / "data" / "kg_output" / "ekg.ttl"
 LABELS_PATH = (BASE_DIR / "data" /
                "2019-10-01 - Blackburn Rovers - Nottingham Forest" /
                "Labels-ball.json")
-
-sys.path.insert(0, str(BASE_DIR / "src" / "2_web_scraper"))
-from espn_scraper import ESPNScraper  # noqa: E402
 
 HALFTIME_SEC = 2764.0
 KEY_ACTIONS  = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Pass"}
@@ -220,36 +216,8 @@ def load_gt_labels(labels_path: Path) -> list:
     return events
 
 
-def load_gt_espn_live(date: str, team1: str, team2: str) -> list:
-    """Fetch ESPN events live for types not covered by Labels-ball.json."""
-    print(f"  Fetching ESPN ground truth for {team1} vs {team2} on {date}...")
-    scraper = ESPNScraper()
-    n = scraper.find_and_load(date, team1, team2)
-    if n == 0:
-        print("  WARNING: ESPN returned 0 events — Foul/Corner GT will be empty")
-        return []
-    events = []
-    for e in scraper.get_all_events():
-        norm = ACTION_NORM.get(e.get("action", ""))
-        if not norm or norm not in KEY_ACTIONS:
-            continue
-        if norm in LABELS_COVERED:
-            continue
-        events.append({
-            "action"  : norm,
-            "time_min": e["time"],
-            "player"  : e.get("player") or "",
-            "team"    : e.get("team")   or "",
-            "source"  : "ESPN live",
-        })
-    return events
-
-
-def load_ground_truth(labels_path: Path,
-                      date: str = "2019-10-01",
-                      team1: str = "Blackburn",
-                      team2: str = "Nottingham Forest") -> list:
-    gt = load_gt_labels(labels_path) + load_gt_espn_live(date, team1, team2)
+def load_ground_truth(labels_path: Path) -> list:
+    gt = load_gt_labels(labels_path)
     gt.sort(key=lambda e: e["time_min"])
     return gt
 
@@ -298,7 +266,7 @@ def evaluate(pipeline: list, gt: list,
         prec  = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         rec   = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         f1    = 2*prec*rec / (prec+rec) if (prec+rec) > 0 else 0.0
-        src   = "Labels-ball.json" if action in LABELS_COVERED else "ESPN CSV"
+        src   = "Labels-ball.json"
         per_action[action] = {
             "tp": tp, "fp": fp, "fn": fn,
             "precision": round(prec, 3),
@@ -449,10 +417,9 @@ def main(args):
     gt = load_ground_truth(LABELS_PATH)
     gt_counts = Counter(e["action"] for e in gt)
 
-    print(f"\n  Ground truth: {len(gt)} events total")
+    print(f"\n  Ground truth: {len(gt)} events total (Labels-ball.json only)")
     for action in sorted(KEY_ACTIONS):
-        src = "Labels-ball.json" if action in LABELS_COVERED else "ESPN live"
-        print(f"    {action:<12} {gt_counts.get(action,0):>3}  [{src}]")
+        print(f"    {action:<12} {gt_counts.get(action,0):>3}")
 
     print_pipeline_summary(kg_events, gt)
 

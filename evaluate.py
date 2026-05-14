@@ -31,7 +31,7 @@ Run:
 """
 
 import re
-import csv
+import sys
 import json
 import argparse
 from pathlib import Path
@@ -39,10 +39,12 @@ from collections import Counter
 
 BASE_DIR    = Path(__file__).resolve().parent
 TTL_PATH    = BASE_DIR / "data" / "kg_output" / "ekg.ttl"
-CSV_PATH    = BASE_DIR / "data" / "blackburn_forest_2019-10-01.csv"
 LABELS_PATH = (BASE_DIR / "data" /
                "2019-10-01 - Blackburn Rovers - Nottingham Forest" /
                "Labels-ball.json")
+
+sys.path.insert(0, str(BASE_DIR / "src" / "2_web_scraper"))
+from espn_scraper import ESPNScraper  # noqa: E402
 
 HALFTIME_SEC = 2764.0
 KEY_ACTIONS  = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Pass"}
@@ -218,31 +220,36 @@ def load_gt_labels(labels_path: Path) -> list:
     return events
 
 
-def load_gt_espn(csv_path: Path) -> list:
-    """Load action annotations from ESPN CSV for types not in Labels-ball.json."""
+def load_gt_espn_live(date: str, team1: str, team2: str) -> list:
+    """Fetch ESPN events live for types not covered by Labels-ball.json."""
+    print(f"  Fetching ESPN ground truth for {team1} vs {team2} on {date}...")
+    scraper = ESPNScraper()
+    n = scraper.find_and_load(date, team1, team2)
+    if n == 0:
+        print("  WARNING: ESPN returned 0 events — Foul/Corner GT will be empty")
+        return []
     events = []
-    with open(csv_path, encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            raw  = row.get("Action_Type", "").strip()
-            norm = ACTION_NORM.get(raw)
-            if not norm or norm not in KEY_ACTIONS:
-                continue
-            # skip types already covered by Labels-ball.json
-            if norm in LABELS_COVERED:
-                continue
-            t = csv_time_to_min(row.get("Time", "0"))
-            events.append({
-                "action"  : norm,
-                "time_min": t,
-                "player"  : row.get("Player", "").strip(),
-                "team"    : row.get("Team", "").strip(),
-                "source"  : "ESPN CSV",
-            })
+    for e in scraper.get_all_events():
+        norm = ACTION_NORM.get(e.get("action", ""))
+        if not norm or norm not in KEY_ACTIONS:
+            continue
+        if norm in LABELS_COVERED:
+            continue
+        events.append({
+            "action"  : norm,
+            "time_min": e["time"],
+            "player"  : e.get("player") or "",
+            "team"    : e.get("team")   or "",
+            "source"  : "ESPN live",
+        })
     return events
 
 
-def load_ground_truth(labels_path: Path, csv_path: Path) -> list:
-    gt = load_gt_labels(labels_path) + load_gt_espn(csv_path)
+def load_ground_truth(labels_path: Path,
+                      date: str = "2019-10-01",
+                      team1: str = "Blackburn",
+                      team2: str = "Nottingham Forest") -> list:
+    gt = load_gt_labels(labels_path) + load_gt_espn_live(date, team1, team2)
     gt.sort(key=lambda e: e["time_min"])
     return gt
 
@@ -439,12 +446,12 @@ def main(args):
         print("  No events found — check --match filter or run the pipeline")
         return
 
-    gt = load_ground_truth(LABELS_PATH, CSV_PATH)
+    gt = load_ground_truth(LABELS_PATH)
     gt_counts = Counter(e["action"] for e in gt)
 
     print(f"\n  Ground truth: {len(gt)} events total")
     for action in sorted(KEY_ACTIONS):
-        src = "Labels-ball.json" if action in LABELS_COVERED else "ESPN CSV"
+        src = "Labels-ball.json" if action in LABELS_COVERED else "ESPN live"
         print(f"    {action:<12} {gt_counts.get(action,0):>3}  [{src}]")
 
     print_pipeline_summary(kg_events, gt)

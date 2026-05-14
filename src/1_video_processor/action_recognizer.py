@@ -42,7 +42,7 @@ VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", 
 CONFIDENCE_THRESHOLDS: Dict[str, float] = {
     "Goal"        : 0.85,
     "Corner"      : 0.75,
-    "Shot"        : 0.60,
+    "Shot"        : 0.65,
     "Foul"        : 0.65,
     "Free_Kick"   : 0.60,
     "Substitution": 0.55,

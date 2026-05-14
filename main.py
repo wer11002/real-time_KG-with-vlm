@@ -208,6 +208,11 @@ def run_match(
     print(f"  KG after pre-population: {ekg.stats()}")
 
     buffer = EventBuffer(dedup_window_sec=30.0)
+    # Cross-batch dedup: tracks (action, video_time) of events already ingested
+    # into the KG. Catches near-duplicates that span different ESPN tick batches
+    # (e.g. 5:12 shot in batch N and 5:14 shot in batch N+1 — same real event).
+    ingested_cache: list = []   # [(action, video_time_sec), ...]
+    CROSS_DEDUP_SEC = 60.0      # same action within 60s = duplicate
 
     video_duration = get_video_duration(video_path)
     total_clips    = int((video_duration - clip_duration) / clip_step) + 1
@@ -295,6 +300,19 @@ def run_match(
                         print(f"   GATED    {m.gametime:<12} {m.action:<10} → "
                               f"conf={m.confidence:.2f} (ESPN contradicts, skipped)")
                         continue
+
+                    # cross-batch dedup: skip if same action already ingested within 60s
+                    _dup = any(
+                        act == m.action
+                        and abs(t - m.video_time) <= CROSS_DEDUP_SEC
+                        for act, t in ingested_cache
+                    )
+                    if _dup:
+                        print(f"   XDEDUP   {m.gametime:<12} {m.action:<10} → "
+                              f"already ingested within 60s, skipped")
+                        continue
+                    ingested_cache.append((m.action, m.video_time))
+
                     ingest_matched_event(
                         matched      = m,
                         match_name   = match_name,

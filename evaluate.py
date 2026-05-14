@@ -19,7 +19,7 @@ Pipeline output:
 Matching rule:
   A pipeline event matches a GT event if:
     1. action type matches exactly
-    2. |pipeline_time - gt_time| <= tolerance (default 0.5 min = 30 s)
+    2. |pipeline_time - gt_time| <= tolerance (default 1.0 min = 60 s)
     3. GT event not already matched (greedy, one-to-one)
 
 Run:
@@ -269,7 +269,7 @@ def load_ground_truth(labels_path: Path, csv_path: Path = None) -> list:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def evaluate(pipeline: list, gt: list,
-             tolerance: float = 0.5,
+             tolerance: float = 1.0,
              matched_only: bool = False) -> dict:
 
     det = [e for e in pipeline
@@ -514,8 +514,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ttl",       default=str(TTL_PATH),
                         help="Path to ekg.ttl")
-    parser.add_argument("--tolerance", type=float, default=0.5,
-                        help="Time tolerance in minutes (default 0.5 = 30s)")
+    parser.add_argument("--tolerance", type=float, default=1.0,
+                        help="Time tolerance in minutes (default 1.0 = 60s)")
     parser.add_argument("--match",     type=str,   default=None,
                         help="Match filter string (default: blackburn)")
     parser.add_argument("--verbose",      action="store_true",

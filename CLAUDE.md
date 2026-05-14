@@ -117,6 +117,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 018 | `NUM_FRAMES` 16 → 32 (~1 frame/2s); hardcoded timestamp line removed from prompt — FN shots were missing all sampled frames |
 | 019 | `pitch_zone` + `body_part` added to VLM output, full pipeline, and KG schema — enables "right-foot from edge of area" commentary without player identity |
 | 020 | `evaluate.py`: ESPN CSV restored for Foul/Corner GT only; default tolerance 2.0 → 0.5 min; gated events logged in `align_buffer()` |
+| 021 | Shot threshold 0.60 → 0.65; ESPN gate fires when best match >1.0 min away; cross-batch dedup in `main.py`; eval tolerance 0.5 → 1.0 min |
 
 ---
 

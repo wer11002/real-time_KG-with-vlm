@@ -264,11 +264,18 @@ def match_by_time(
     candidates.sort(key=lambda x: x[0])
     best_diff, best = candidates[0]
 
-    # ESPN confirmation gate: if Shot matched to a non-Shot/Goal ESPN event
-    # (possible if ACTION_MAP is broadened) and confidence is low, downgrade.
-    if (video_action == "Shot"
-            and best.get("action") not in {"Shot", "Goal"}
-            and video_event["confidence"] < 0.75):
+    # ESPN confirmation gate — two conditions that gate low-confidence Shots:
+    # A) matched ESPN event is not Shot/Goal (ACTION_MAP broadening guard)
+    # B) matched ESPN Shot/Goal is >1.0 min away (loose ESPN match, untrustworthy)
+    _shot_gate = (
+        video_action == "Shot"
+        and video_event["confidence"] < 0.75
+        and (
+            best.get("action") not in {"Shot", "Goal"}   # condition A
+            or best_diff > 1.0                           # condition B (fix 021)
+        )
+    )
+    if _shot_gate:
         return MatchedEvent(
             video_time   = video_event["video_time"],
             action       = video_action,

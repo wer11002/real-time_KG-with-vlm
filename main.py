@@ -51,6 +51,8 @@ DATA_DIR      = BASE_DIR / "data"
 CLIP_DURATION = 60
 CLIP_STEP     = 30
 
+REGISTRY_PATH = BASE_DIR / "data" / "kg_output" / "processed_matches.json"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LOGGING
@@ -90,6 +92,23 @@ def setup_logging(log_dir: Path) -> Path:
     builtins.print = _logged_print
 
     return log_path
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CHECKPOINT REGISTRY
+# ═══════════════════════════════════════════════════════════════════════════
+
+def load_registry() -> set:
+    if REGISTRY_PATH.exists():
+        import json
+        return set(json.loads(REGISTRY_PATH.read_text()))
+    return set()
+
+
+def save_registry(registry: set):
+    import json
+    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REGISTRY_PATH.write_text(json.dumps(sorted(registry), indent=2))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -389,14 +408,37 @@ def run_pipeline(
     print("\n" + "═"*70)
     print("  Soccer EKG — Real-Time Pipeline V2 (Qwen3-VL + TKG)")
     print("═"*70)
+
+    # ── checkpoint: load registry + resume from existing TTL ──────────────
+    registry = load_registry()
+    ekg      = EKG_Graph()
+    last_event = {}
+
+    if registry:
+        if TTL_PATH.exists():
+            ekg.load(str(TTL_PATH))
+            print(f"  Checkpoint: loaded {TTL_PATH.name} ({ekg.triple_count()} triples, "
+                  f"{len(registry)} match(es) already processed)")
+            unprocessed = [f for f in match_folders if f.name not in registry]
+            skipped = len(match_folders) - len(unprocessed)
+            if skipped:
+                print(f"  Checkpoint: skipping {skipped} already-processed match(es):")
+                for f in match_folders:
+                    if f.name in registry:
+                        print(f"    ✓ {f.name}")
+            if not unprocessed:
+                print("  All matches already processed — nothing to do.")
+                return ekg
+            match_folders = unprocessed
+        else:
+            print(f"  WARNING: registry exists ({len(registry)} entries) but "
+                  f"{TTL_PATH.name} is missing — reprocessing all matches")
+            registry = set()
+
     print(f"  Matches to process : {len(match_folders)}")
     for f in match_folders:
         print(f"    {f.name}")
     print("═"*70)
-
-    # shared across ALL matches
-    ekg        = EKG_Graph()
-    last_event = {}
 
     print(f"\n  Loading Qwen3-VL model (once, shared across all matches)...")
     load_model()
@@ -424,9 +466,10 @@ def run_pipeline(
         )
         if summary:
             summaries.append(summary)
-
-    # final save
-    ekg.save(TTL_PATH)
+            # checkpoint: TTL already saved by run_match(); update registry
+            registry.add(folder.name)
+            save_registry(registry)
+            print(f"  Checkpoint: {folder.name} saved to registry ({len(registry)} total)")
 
     total_time = time.time() - t0_total
     yellow     = ekg.events_by_type("YellowCard")

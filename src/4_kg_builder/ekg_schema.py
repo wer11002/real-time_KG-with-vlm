@@ -321,12 +321,16 @@ class EKG_Graph:
             "date" : Literal(date, datatype=XSD.date),
         })]
 
-    # ── save ───────────────────────────────────────────────────────────────
+    # ── save / load ────────────────────────────────────────────────────────
 
     def save(self, out_path: Path, format: str = "turtle"):
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         self.g.serialize(destination=str(out_path), format=format)
+
+    def load(self, path: str):
+        """Merge an existing TTL into the graph (checkpoint resume)."""
+        self.g.parse(path, format="turtle")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

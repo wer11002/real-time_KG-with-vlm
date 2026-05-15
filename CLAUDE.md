@@ -118,6 +118,10 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 019 | `pitch_zone` + `body_part` added to VLM output, full pipeline, and KG schema — enables "right-foot from edge of area" commentary without player identity |
 | 020 | `evaluate.py`: ESPN CSV restored for Foul/Corner GT only; default tolerance 2.0 → 0.5 min; gated events logged in `align_buffer()` |
 | 021 | Shot threshold 0.60 → 0.65; ESPN gate fires when best match >1.0 min away; cross-batch dedup in `main.py`; eval tolerance 0.5 → 1.0 min |
+| 022 | Goal gate in `align.py` — Goal with conf < 0.85 where ESPN says Shot (not Goal) is gated |
+| 023 | Mandatory ESPN Shot confirmation — Shot rejected unless ESPN has Shot/Goal within ±1.5 min |
+| 024 | Shot threshold 0.65 → 0.80; dedup window 30s → 60s; Shot→Goal guard in `main.py` (Goal within 10s of Shot = double-detection) |
+| 025 | Checkpoint registry (`data/kg_output/processed_matches.json`) — KG grows match-by-match; already-processed matches skipped on re-run; missing TTL triggers full reprocess with warning |
 
 ---
 

@@ -207,12 +207,13 @@ def run_match(
     n_prepop = prepopulate_roster(roster, match_name, match_date, ekg)
     print(f"  KG after pre-population: {ekg.stats()}")
 
-    buffer = EventBuffer(dedup_window_sec=30.0)
+    buffer = EventBuffer(dedup_window_sec=60.0)  # was 30s — raised to match cross-batch window
     # Cross-batch dedup: tracks (action, video_time) of events already ingested
     # into the KG. Catches near-duplicates that span different ESPN tick batches
     # (e.g. 5:12 shot in batch N and 5:14 shot in batch N+1 — same real event).
     ingested_cache: list = []   # [(action, video_time_sec), ...]
-    CROSS_DEDUP_SEC = 60.0      # same action within 60s = duplicate
+    CROSS_DEDUP_SEC  = 60.0     # same action within 60s = duplicate
+    SHOT_GOAL_GUARD  = 10.0     # Goal within 10s of a Shot = double-detection
 
     video_duration = get_video_duration(video_path)
     total_clips    = int((video_duration - clip_duration) / clip_step) + 1
@@ -311,6 +312,21 @@ def run_match(
                         print(f"   XDEDUP   {m.gametime:<12} {m.action:<10} → "
                               f"already ingested within 60s, skipped")
                         continue
+
+                    # Shot→Goal guard: a Goal within 10s of an ingested Shot is
+                    # a double-detection of the same event (VLM saw Shot + Goal
+                    # in the same clip). Discard the Goal; keep the Shot.
+                    if m.action == "Goal":
+                        _near_shot = any(
+                            act == "Shot"
+                            and abs(t - m.video_time) <= SHOT_GOAL_GUARD
+                            for act, t in ingested_cache
+                        )
+                        if _near_shot:
+                            print(f"   GOALGUARD {m.gametime:<12} Goal → "
+                                  f"Shot already ingested within 10s, skipped")
+                            continue
+
                     ingested_cache.append((m.action, m.video_time))
 
                     ingest_matched_event(

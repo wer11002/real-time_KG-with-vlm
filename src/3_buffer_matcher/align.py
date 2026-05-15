@@ -221,6 +221,23 @@ def match_by_time(
     }
 
     if not candidates:
+        # Gate Goals with no ESPN Goal/Shot match at all — a goal with nothing
+        # in ESPN is almost certainly a hallucination (goals are always logged).
+        if video_action == "Goal":
+            return MatchedEvent(
+                video_time   = video_event["video_time"],
+                action       = video_action,
+                confidence   = video_event["confidence"],
+                gametime     = video_event["gametime"],
+                matched      = False,
+                team         = video_event.get("team"),
+                match_method = "gated",
+                jersey       = jersey,
+                description  = description,
+                team_color   = video_event.get("team_color"),
+                **kit,
+            )
+
         # ESPN confirmation gate (Fix 009):
         # Shot with no Shot/Goal ESPN match but a nearby different ESPN event
         # and low confidence → mark gated so caller can skip KG ingestion.
@@ -264,18 +281,25 @@ def match_by_time(
     candidates.sort(key=lambda x: x[0])
     best_diff, best = candidates[0]
 
-    # ESPN confirmation gate — two conditions that gate low-confidence Shots:
-    # A) matched ESPN event is not Shot/Goal (ACTION_MAP broadening guard)
-    # B) matched ESPN Shot/Goal is >1.0 min away (loose ESPN match, untrustworthy)
+    # ESPN confirmation gate — gates low-confidence Shots and unconfirmed Goals.
+    #
+    # Shot gate: confidence < 0.75 AND (ESPN event is not Shot/Goal, OR match is >1.0 min away)
+    # Goal gate: confidence < 0.85 AND matched ESPN event is Shot, not Goal
+    #   (catches VLM detecting a Goal in the same clip as a real Shot — 0:32 FP pattern)
     _shot_gate = (
         video_action == "Shot"
         and video_event["confidence"] < 0.75
         and (
-            best.get("action") not in {"Shot", "Goal"}   # condition A
-            or best_diff > 1.0                           # condition B (fix 021)
+            best.get("action") not in {"Shot", "Goal"}
+            or best_diff > 1.0
         )
     )
-    if _shot_gate:
+    _goal_gate = (
+        video_action == "Goal"
+        and video_event["confidence"] < 0.85
+        and best.get("action") != "Goal"   # ESPN says Shot, not Goal
+    )
+    if _shot_gate or _goal_gate:
         return MatchedEvent(
             video_time   = video_event["video_time"],
             action       = video_action,
@@ -377,7 +401,7 @@ def align_buffer(
 
         if matched.match_method == "gated":
             print(f"  [gated] {matched.gametime:<12} {matched.action:<10} "
-                  f"conf={matched.confidence:.2f}  (ESPN nearby: not Shot/Goal)")
+                  f"conf={matched.confidence:.2f}")
 
         # consume the matched ESPN event to prevent duplicate KG nodes
         if matched.matched and matched.espn_time is not None and espn_scraper:

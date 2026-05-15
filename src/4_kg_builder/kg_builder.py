@@ -23,10 +23,12 @@ Changes from previous version:
 """
 
 import csv
+import json
 import re
 import sys
 import time
 import argparse
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -44,9 +46,23 @@ BASE_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 CSV_PATH = DATA_DIR / "blackburn_forest_2019-10-01.csv"
 OUT_DIR  = DATA_DIR / "kg_output"
-TTL_PATH = OUT_DIR  / "ekg.ttl"
+TTL_PATH    = OUT_DIR  / "ekg.ttl"
+STREAM_PATH = OUT_DIR  / "events_stream.jsonl"
 
 DEFAULT_MATCH_DATE = "2019-10-01"
+
+
+def _append_stream(event_data: dict):
+    """Append one event JSON line to the live visualization stream."""
+    STREAM_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(STREAM_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(event_data, default=str) + "\n")
+
+
+def clear_stream():
+    """Truncate the event stream. Call at the start of each pipeline run."""
+    STREAM_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STREAM_PATH.write_text("")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -349,6 +365,24 @@ def _create_event_node(
         ekg.g.add((player_uri, EKG.PERFORMED,       event_uri))
         ekg.g.add((event_uri,  EKG.IS_PERFORMED_BY, player_uri))
         new_edges.append(f"{player_id} --[PERFORMED]--> event_{event_id}")
+
+    # Live visualization stream
+    _append_stream({
+        "event_id"   : event_id,
+        "event_type" : event_type,
+        "time_raw"   : time_raw,
+        "player_id"  : player_id,
+        "team_id"    : team_id,
+        "match_id"   : match_id,
+        "description": description,
+        "pitch_zone" : pitch_zone,
+        "body_part"  : body_part,
+        "outcome"    : outcome,
+        "foul_type"  : foul_type,
+        "team_side"  : team_side,
+        "confidence" : confidence,
+        "timestamp"  : datetime.utcnow().isoformat(),
+    })
 
     return event_id, new_edges
 

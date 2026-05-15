@@ -44,7 +44,7 @@ from espn_scraper      import ESPNScraper
 from roster_lookup     import RosterLookup
 from align             import align_buffer, summarize
 from kg_builder        import (
-    EKG_Graph, ingest_matched_event, prepopulate_roster, TTL_PATH
+    EKG_Graph, ingest_matched_event, prepopulate_roster, TTL_PATH, clear_stream
 )
 
 DATA_DIR      = BASE_DIR / "data"
@@ -443,6 +443,9 @@ def run_pipeline(
     for f in match_folders:
         print(f"    {f.name}")
     print("═"*70)
+
+    clear_stream()
+    print(f"  [viz] event stream cleared → data/kg_output/events_stream.jsonl")
 
     print(f"\n  Loading Qwen3-VL model (once, shared across all matches)...")
     load_model()

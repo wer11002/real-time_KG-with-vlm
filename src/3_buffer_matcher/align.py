@@ -220,6 +220,31 @@ def match_by_time(
         "body_part"   : video_event.get("body_part"),
     }
 
+    # Mandatory ESPN confirmation for Shot (Fix 023):
+    # Only accept a Shot if ESPN has a Shot/Goal within ±1.5 min.
+    # ESPN records all shot attempts (blocked, wide, saved, on target), so
+    # no nearby ESPN shot = almost certainly a clearance, cross, or GK kick.
+    if video_action == "Shot":
+        has_espn_shot = any(
+            abs(e["time"] - video_minute) <= 1.5
+            and e["action"] in {"Shot", "Goal"}
+            for e in espn_events
+        )
+        if not has_espn_shot:
+            return MatchedEvent(
+                video_time   = video_event["video_time"],
+                action       = video_action,
+                confidence   = video_event["confidence"],
+                gametime     = video_event["gametime"],
+                matched      = False,
+                team         = video_event.get("team"),
+                match_method = "gated",
+                jersey       = jersey,
+                description  = description,
+                team_color   = video_event.get("team_color"),
+                **kit,
+            )
+
     if not candidates:
         # Gate Goals with no ESPN Goal/Shot match at all — a goal with nothing
         # in ESPN is almost certainly a hallucination (goals are always logged).

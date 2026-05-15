@@ -159,6 +159,10 @@ DATATYPE_PROPERTIES = {
     "hasKitPattern"         : XSD.string,  # "solid", "striped", "hooped"
     "hasPitchZone"          : XSD.string,  # "penalty_box", "edge_of_area", "midfield", "own_half", "wing"
     "hasBodyPart"           : XSD.string,  # "right_foot", "left_foot", "header"
+    "hasOutcome"            : XSD.string,  # Shot/Goal result: "saved_high", "wide_left", "goal", etc.
+    "hasFoulType"           : XSD.string,  # Foul sub-type: "tackle", "handball", "push", etc.
+    "hasTeamSide"           : XSD.string,  # "home" or "away" — VLM-inferred
+    "hasBallVisible"        : XSD.boolean, # quality flag — false means ball not visible in any frame
 
     # ── Player roster data ────────────────────────────────────────────────
     "hasJerseyNumber": XSD.string,  # permanent squad jersey number on Player node
@@ -183,6 +187,11 @@ def build_tbox(g: Graph):
     g.bind("rdf",  RDF)
     g.bind("rdfs", RDFS)
     g.bind("xsd",  XSD)
+
+    # OWL Ontology declaration (T02 fix)
+    g.add((EKG[""], RDF.type,       OWL.Ontology))
+    g.add((EKG[""], RDFS.label,     Literal("Soccer Event Knowledge Graph")))
+    g.add((EKG[""], OWL.versionInfo, Literal("2.1")))
 
     # classes
     for name, uri in CLASSES.items():
@@ -210,6 +219,23 @@ def build_tbox(g: Graph):
         g.add((uri, RDF.type,   OWL.DatatypeProperty))
         g.add((uri, RDFS.label, Literal(name)))
         g.add((uri, RDFS.range, range_))
+
+    # domain declarations for existing datatype properties (T03 fix)
+    g.add((EKG.hasTime,        RDFS.domain, EKG.Event))
+    g.add((EKG.hasMinute,      RDFS.domain, EKG.Event))
+    g.add((EKG.hasPeriod,      RDFS.domain, EKG.Event))
+    g.add((EKG.hasEventType,   RDFS.domain, EKG.Event))
+    g.add((EKG.hasConfidence,  RDFS.domain, EKG.Event))
+    g.add((EKG.hasDescription, RDFS.domain, EKG.Event))
+    g.add((EKG.hasPitchZone,   RDFS.domain, EKG.Event))
+    g.add((EKG.hasBodyPart,    RDFS.domain, EKG.ActionEvent))
+    g.add((EKG.detectedJersey, RDFS.domain, EKG.Event))
+
+    # domain declarations for new datatype properties
+    g.add((EKG.hasOutcome,     RDFS.domain, EKG.ActionEvent))
+    g.add((EKG.hasFoulType,    RDFS.domain, EKG.FoulEvent))
+    g.add((EKG.hasTeamSide,    RDFS.domain, EKG.Event))
+    g.add((EKG.hasBallVisible, RDFS.domain, EKG.Event))
 
     return g
 

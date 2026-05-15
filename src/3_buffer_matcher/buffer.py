@@ -40,6 +40,10 @@ class VideoEvent:
     kit_pattern  : Optional[str] = None
     pitch_zone   : Optional[str] = None
     body_part    : Optional[str] = None
+    outcome      : Optional[str] = None   # Shot/Goal result e.g. "saved_low", "wide_right"
+    foul_type    : Optional[str] = None   # Foul sub-type e.g. "tackle", "handball"
+    team_side    : Optional[str] = None   # "home" or "away" — VLM-inferred
+    ball_visible : Optional[bool] = None  # False triggers quality flag
     description  : Optional[str] = None   # VLM natural language description
     detected_at  : str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -70,6 +74,10 @@ def make_video_event(detected: dict, clip_start_sec: float, gametime: str) -> Vi
         kit_pattern  = detected.get("kit_pattern"),
         pitch_zone   = detected.get("pitch_zone"),
         body_part    = detected.get("body_part"),
+        outcome      = detected.get("outcome"),
+        foul_type    = detected.get("foul_type"),
+        team_side    = detected.get("team_side"),
+        ball_visible = detected.get("ball_visible"),
         description  = detected.get("description"),
     )
 

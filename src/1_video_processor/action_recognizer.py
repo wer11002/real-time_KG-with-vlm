@@ -380,13 +380,21 @@ Respond ONLY with this JSON (no markdown, no extra text):
       "kit_pattern": "solid" or "striped" or "hooped" or null,
       "pitch_zone": "penalty_box" or "edge_of_area" or "midfield" or "own_half" or "wing" or null,
       "body_part": "right_foot" or "left_foot" or "header" or null,
-      "description": "who (jersey#), what technique (left/right foot, header), where on pitch (penalty box / edge of area / midfield)",
+      "outcome": "goal" or "saved_high" or "saved_low" or "saved_side" or "wide_left" or "wide_right" or "over_bar" or "blocked" or "on_target" or null,
+      "foul_type": "tackle" or "handball" or "push" or "shirt_pull" or "trip" or "elbow" or null,
+      "team_side": "home" or "away" or null,
+      "ball_visible": true or false,
+      "description": "WHO (jersey# and kit color if visible), WHAT action with WHAT technique (left/right foot, header, slide tackle), WHERE on pitch (be specific: top of box, six-yard box, left flank), WHAT HAPPENED immediately after (saved by keeper, hit post, went wide, goal scored). Example: 'Player #7 in blue cuts inside from the right and drives a low right-footed shot from the edge of the penalty area — saved low by the goalkeeper to his left'",
       "confidence": 0.0 to 1.0
     }
   ]
 }
 
 pitch_zone applies to ALL actions. body_part applies to Shot and Goal only — set null for other actions.
+outcome applies to Shot and Goal only — set null for all other actions.
+foul_type applies to Foul only — set null for all other actions.
+team_side applies to ALL actions — infer from which team appears to be performing the action.
+ball_visible applies to ALL actions — true if ball is visible in at least one frame.
 If no action meets the strict criteria above, return: {"actions": []}"""
 
 
@@ -574,6 +582,10 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
             "kit_pattern" : raw.get("kit_pattern"),
             "pitch_zone"  : raw.get("pitch_zone"),
             "body_part"   : raw.get("body_part"),
+            "outcome"     : raw.get("outcome"),
+            "foul_type"   : raw.get("foul_type"),
+            "team_side"   : raw.get("team_side"),
+            "ball_visible": raw.get("ball_visible"),
             "description" : raw.get("description", ""),
             "video_time"  : video_time,
             "time_in_clip": round(time_in_clip, 1),

@@ -247,6 +247,10 @@ def _create_event_node(
     kit_pattern  : Optional[str] = None,
     pitch_zone   : Optional[str] = None,
     body_part    : Optional[str] = None,
+    outcome      : Optional[str] = None,
+    foul_type    : Optional[str] = None,
+    team_side    : Optional[str] = None,
+    ball_visible : Optional[bool] = None,
 ) -> Tuple[str, list]:
     """
     Create one Event node + wire standard edges.
@@ -307,6 +311,14 @@ def _create_event_node(
         ekg.g.add((event_uri, EKG.hasPitchZone,   Literal(str(pitch_zone))))
     if body_part:
         ekg.g.add((event_uri, EKG.hasBodyPart,    Literal(str(body_part))))
+    if outcome:
+        ekg.g.add((event_uri, EKG.hasOutcome,     Literal(str(outcome))))
+    if foul_type:
+        ekg.g.add((event_uri, EKG.hasFoulType,    Literal(str(foul_type))))
+    if team_side:
+        ekg.g.add((event_uri, EKG.hasTeamSide,    Literal(str(team_side))))
+    if ball_visible is not None:
+        ekg.g.add((event_uri, EKG.hasBallVisible, Literal(ball_visible, datatype=XSD.boolean)))
 
     new_edges = []
 
@@ -432,6 +444,10 @@ def ingest_matched_event(
     kit_pattern  : Optional[str] = None,
     pitch_zone   : Optional[str] = None,
     body_part    : Optional[str] = None,
+    outcome      : Optional[str] = None,
+    foul_type    : Optional[str] = None,
+    team_side    : Optional[str] = None,
+    ball_visible : Optional[bool] = None,
 ) -> dict:
     """
     Ingest one MatchedEvent from align.py into the RDF graph.
@@ -475,6 +491,10 @@ def ingest_matched_event(
         kit_pattern  = kit_pattern,
         pitch_zone   = pitch_zone,
         body_part    = body_part,
+        outcome      = outcome,
+        foul_type    = foul_type,
+        team_side    = team_side,
+        ball_visible = ball_visible,
     )
     new_edges.extend(edges)
 

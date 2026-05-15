@@ -362,6 +362,10 @@ def run_match(
                         kit_pattern  = m.kit_pattern,
                         pitch_zone   = m.pitch_zone,
                         body_part    = m.body_part,
+                        outcome      = m.outcome,
+                        foul_type    = m.foul_type,
+                        team_side    = m.team_side,
+                        ball_visible = m.ball_visible,
                     )
                     method = f"[{m.match_method}]"
                     player = m.player if m.matched else "?"

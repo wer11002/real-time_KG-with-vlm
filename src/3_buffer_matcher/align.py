@@ -86,6 +86,10 @@ class MatchedEvent:
     kit_pattern   : Optional[str]   = None
     pitch_zone    : Optional[str]   = None
     body_part     : Optional[str]   = None
+    outcome       : Optional[str]   = None   # Shot/Goal result e.g. "saved_low"
+    foul_type     : Optional[str]   = None   # Foul sub-type e.g. "tackle"
+    team_side     : Optional[str]   = None   # "home" or "away"
+    ball_visible  : Optional[bool]  = None   # quality flag
 
     def to_dict(self):
         return asdict(self)
@@ -185,6 +189,10 @@ def match_by_jersey(
         kit_pattern  = video_event.get("kit_pattern"),
         pitch_zone   = video_event.get("pitch_zone"),
         body_part    = video_event.get("body_part"),
+        outcome      = video_event.get("outcome"),
+        foul_type    = video_event.get("foul_type"),
+        team_side    = video_event.get("team_side"),
+        ball_visible = video_event.get("ball_visible"),
     )
 
 
@@ -218,6 +226,10 @@ def match_by_time(
         "kit_pattern" : video_event.get("kit_pattern"),
         "pitch_zone"  : video_event.get("pitch_zone"),
         "body_part"   : video_event.get("body_part"),
+        "outcome"     : video_event.get("outcome"),
+        "foul_type"   : video_event.get("foul_type"),
+        "team_side"   : video_event.get("team_side"),
+        "ball_visible": video_event.get("ball_visible"),
     }
 
     # Mandatory ESPN confirmation for Shot (Fix 023):
@@ -417,6 +429,10 @@ def align_buffer(
                 "kit_pattern" : getattr(v, "kit_pattern",  None),
                 "pitch_zone"  : getattr(v, "pitch_zone",   None),
                 "body_part"   : getattr(v, "body_part",    None),
+                "outcome"     : getattr(v, "outcome",      None),
+                "foul_type"   : getattr(v, "foul_type",    None),
+                "team_side"   : getattr(v, "team_side",    None),
+                "ball_visible": getattr(v, "ball_visible", None),
                 "description" : getattr(v, "description",  None),
             }
         else:

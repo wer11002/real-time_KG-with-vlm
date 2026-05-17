@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
+import { forceCollide } from 'd3-force'
 import ForceGraph2D from 'react-force-graph-2d'
 import { useKgSocket } from './useKgSocket.js'
 import { useStaticGraph } from './useStaticGraph.js'
@@ -58,6 +59,22 @@ function GraphView({
   mode, onSwitch, statusText,
 }) {
   const glowingRef = useRef(new Set())
+  const fgRef     = useRef()
+
+  // Apply collision + repulsion forces so nodes don't overlap
+  useEffect(() => {
+    const fg = fgRef.current
+    if (!fg) return
+    fg.d3Force('collision', forceCollide(node => getNodeSize(node) + 6))
+    const charge = fg.d3Force('charge')
+    if (charge) charge.strength(-250)
+  }, [])
+
+  // Re-heat simulation when nodes are added so forces re-settle
+  useEffect(() => {
+    if (fgRef.current && graphData.nodes.length > 0)
+      fgRef.current.d3ReheatSimulation()
+  }, [graphData.nodes.length])
 
   useEffect(() => {
     if (!recentNodeIds.length) return
@@ -144,6 +161,7 @@ function GraphView({
       {/* Graph area */}
       <div style={styles.graphWrap}>
         <ForceGraph2D
+          ref={fgRef}
           graphData={graphData}
           backgroundColor="#1a1a2e"
           width={window.innerWidth}
@@ -159,8 +177,8 @@ function GraphView({
           linkDirectionalArrowRelPos={1}
           linkLabel={link => link.label}
           d3AlphaDecay={0.02}
-          d3VelocityDecay={0.35}
-          cooldownTicks={150}
+          d3VelocityDecay={0.3}
+          cooldownTicks={300}
         />
 
         {/* Loading / error overlay */}

@@ -244,4 +244,4 @@ if __name__ == "__main__":
     sys.path.insert(0, str(BASE_DIR))
     print(f"  Stream path : {STREAM_PATH}")
     print(f"  Frontend    : {DIST_DIR} ({'built' if DIST_DIR.exists() else 'run npm run dev'})")
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("server:app", host="0.0.0.0", port=8765, reload=False)

@@ -1,20 +1,64 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { useKgSocket } from './useKgSocket.js'
+import { useStaticGraph } from './useStaticGraph.js'
 import { getNodeColor, getNodeSize, LEGEND_ITEMS } from './nodeColors.js'
 
 const HEADER_H = 44
 const LEGEND_H = 36
 
 export default function App() {
+  const [mode, setMode] = useState('static')
+
+  return (
+    <div style={styles.root}>
+      {mode === 'static'
+        ? <StaticView onSwitch={() => setMode('live')} />
+        : <LiveView   onSwitch={() => setMode('static')} />
+      }
+    </div>
+  )
+}
+
+function StaticView({ onSwitch }) {
+  const { graphData, stats, loading, error, selectedNode, setSelectedNode } = useStaticGraph()
+  return (
+    <GraphView
+      graphData={loading ? { nodes: [], links: [] } : graphData}
+      stats={stats}
+      selectedNode={selectedNode}
+      setSelectedNode={setSelectedNode}
+      mode="static"
+      onSwitch={onSwitch}
+      statusText={loading ? 'Parsing ekg.ttl…' : error ? `Error: ${error}` : null}
+    />
+  )
+}
+
+function LiveView({ onSwitch }) {
+  const { graphData, stats, connected, lastUpdate, selectedNode, setSelectedNode, recentNodeIds } = useKgSocket()
+  return (
+    <GraphView
+      graphData={graphData}
+      stats={stats}
+      selectedNode={selectedNode}
+      setSelectedNode={setSelectedNode}
+      recentNodeIds={recentNodeIds}
+      connected={connected}
+      lastUpdate={lastUpdate}
+      mode="live"
+      onSwitch={onSwitch}
+    />
+  )
+}
+
+function GraphView({
+  graphData, stats, selectedNode, setSelectedNode,
+  recentNodeIds = [], connected, lastUpdate,
+  mode, onSwitch, statusText,
+}) {
   const glowingRef = useRef(new Set())
 
-  const {
-    graphData, stats, connected, lastUpdate,
-    selectedNode, setSelectedNode, recentNodeIds,
-  } = useKgSocket()
-
-  // Track which nodes should glow (new nodes pulse for 2 seconds)
   useEffect(() => {
     if (!recentNodeIds.length) return
     recentNodeIds.forEach(id => glowingRef.current.add(id))
@@ -28,7 +72,6 @@ export default function App() {
     const color = getNodeColor(node)
     const glow  = glowingRef.current.has(node.id)
 
-    // Glow ring for newly added nodes
     if (glow) {
       ctx.save()
       ctx.beginPath()
@@ -41,7 +84,6 @@ export default function App() {
       ctx.restore()
     }
 
-    // Node circle
     ctx.beginPath()
     ctx.arc(node.x, node.y, size, 0, 2 * Math.PI)
     ctx.fillStyle   = color
@@ -50,13 +92,12 @@ export default function App() {
     ctx.lineWidth   = 0.5
     ctx.stroke()
 
-    // Always-visible label for match and team nodes
     if (node.nodeType === 'match' || node.nodeType === 'team') {
       const fontSize = Math.max(9, 11 / globalScale)
-      ctx.font          = `${fontSize}px monospace`
-      ctx.textAlign     = 'center'
-      ctx.textBaseline  = 'top'
-      ctx.fillStyle     = 'rgba(255,255,255,0.9)'
+      ctx.font         = `${fontSize}px monospace`
+      ctx.textAlign    = 'center'
+      ctx.textBaseline = 'top'
+      ctx.fillStyle    = 'rgba(255,255,255,0.9)'
       ctx.fillText(node.label, node.x, node.y + size + 2)
     }
   }, [])
@@ -70,23 +111,37 @@ export default function App() {
   , [setSelectedNode])
 
   return (
-    <div style={styles.root}>
-
-      {/* Stats bar */}
+    <>
+      {/* Header */}
       <div style={styles.header}>
         <span style={styles.title}>Soccer EKG</span>
+
+        {/* Mode toggle */}
+        <button
+          style={{ ...styles.modeBtn, ...(mode === 'static' ? styles.modeBtnOn : {}) }}
+          onClick={mode === 'live' ? onSwitch : undefined}
+        >Static KG</button>
+        <button
+          style={{ ...styles.modeBtn, ...(mode === 'live' ? styles.modeBtnOn : {}) }}
+          onClick={mode === 'static' ? onSwitch : undefined}
+        >Live Stream</button>
+
+        <span style={styles.sep} />
         <span>Events: <b>{stats.events}</b></span>
         <span>Players: <b>{stats.players}</b></span>
         {lastUpdate && <span style={styles.dim}>Last update: {lastUpdate}</span>}
-        <span style={styles.liveGroup}>
-          <span style={{ ...styles.dot, background: connected ? '#40c057' : '#e03131' }} />
-          <span style={{ color: connected ? '#40c057' : '#e03131' }}>
-            {connected ? 'LIVE' : 'DISCONNECTED'}
+
+        {mode === 'live' && (
+          <span style={styles.liveGroup}>
+            <span style={{ ...styles.dot, background: connected ? '#40c057' : '#e03131' }} />
+            <span style={{ color: connected ? '#40c057' : '#e03131' }}>
+              {connected ? 'LIVE' : 'DISCONNECTED'}
+            </span>
           </span>
-        </span>
+        )}
       </div>
 
-      {/* Graph */}
+      {/* Graph area */}
       <div style={styles.graphWrap}>
         <ForceGraph2D
           graphData={graphData}
@@ -107,6 +162,11 @@ export default function App() {
           d3VelocityDecay={0.35}
           cooldownTicks={150}
         />
+
+        {/* Loading / error overlay */}
+        {statusText && (
+          <div style={styles.overlay}>{statusText}</div>
+        )}
 
         {/* Node detail panel */}
         {selectedNode && (
@@ -140,7 +200,7 @@ export default function App() {
           </div>
         ))}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -151,16 +211,28 @@ const styles = {
     color: '#e0e0e0', fontFamily: 'monospace',
   },
   header: {
-    display: 'flex', alignItems: 'center', gap: 24,
+    display: 'flex', alignItems: 'center', gap: 16,
     padding: '0 16px', height: HEADER_H,
     background: '#0d0d1a', borderBottom: '1px solid #2a2a4a',
     fontSize: 13, flexShrink: 0,
   },
-  title:    { fontWeight: 'bold', color: '#7ba7d4', marginRight: 8 },
-  dim:      { color: '#666' },
-  liveGroup:{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 },
-  dot:      { width: 8, height: 8, borderRadius: '50%', display: 'inline-block' },
-  graphWrap:{ flex: 1, position: 'relative', overflow: 'hidden' },
+  title:      { fontWeight: 'bold', color: '#7ba7d4', marginRight: 4 },
+  dim:        { color: '#666' },
+  sep:        { flex: 1 },
+  liveGroup:  { display: 'flex', alignItems: 'center', gap: 6 },
+  dot:        { width: 8, height: 8, borderRadius: '50%', display: 'inline-block' },
+  modeBtn: {
+    background: 'none', border: '1px solid #2a2a4a', color: '#666',
+    borderRadius: 4, padding: '3px 10px', cursor: 'pointer',
+    fontFamily: 'monospace', fontSize: 12,
+  },
+  modeBtnOn: { borderColor: '#7ba7d4', color: '#7ba7d4' },
+  graphWrap:  { flex: 1, position: 'relative', overflow: 'hidden' },
+  overlay: {
+    position: 'absolute', inset: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: '#7ba7d4', pointerEvents: 'none',
+  },
   legend: {
     display: 'flex', flexWrap: 'wrap', gap: 12,
     padding: '0 16px', height: LEGEND_H, alignItems: 'center',

@@ -94,6 +94,129 @@ async def websocket_endpoint(ws: WebSocket):
             pass
 
 
+# ── TTL graph ─────────────────────────────────────────────────────────────
+
+@app.get("/api/graph")
+async def get_graph():
+    """Parse ekg.ttl → {nodes, links} for static KG visualization."""
+    from rdflib import Graph, RDF, RDFS, Namespace, Literal, URIRef  # noqa
+
+    TTL_PATH = BASE_DIR / "data" / "ekg.ttl"
+    if not TTL_PATH.exists():
+        return JSONResponse({"nodes": [], "links": [], "error": "ekg.ttl not found"})
+
+    g = Graph()
+    g.parse(str(TTL_PATH), format="turtle")
+
+    EKG = Namespace("http://soccerekg.org/ontology#")
+
+    EVENT_TYPES = [
+        "GoalEvent", "ShotEvent", "FoulEvent", "CornerEvent",
+        "FreeKickEvent", "SubstitutionEvent", "OffsideEvent",
+    ]
+
+    def local_name(uri):
+        s = str(uri)
+        return s.split("#")[-1] if "#" in s else s.split("/")[-1]
+
+    def get_label(subj):
+        lbl = g.value(subj, RDFS.label)
+        return str(lbl) if lbl else local_name(subj).replace("_", " ").title()
+
+    nodes, links = [], []
+    node_map, link_keys = {}, set()
+
+    def add_node(uri, node):
+        k = str(uri)
+        if k not in node_map:
+            node_map[k] = node
+            nodes.append(node)
+
+    def add_link(src_uri, tgt_uri, label):
+        s = node_map.get(str(src_uri))
+        t = node_map.get(str(tgt_uri))
+        if not s or not t:
+            return
+        key = f"{s['id']}|{t['id']}|{label}"
+        if key not in link_keys:
+            link_keys.add(key)
+            links.append({"source": s["id"], "target": t["id"], "label": label})
+
+    # Team-side map: scan event hasTeamSide + INVOLVED_IN
+    team_side_map = {}
+    for event in g.subjects(EKG.hasTeamSide, None):
+        side = str(g.value(event, EKG.hasTeamSide))
+        for team in g.subjects(EKG.INVOLVED_IN, event):
+            team_side_map.setdefault(str(team), side)
+
+    # Player-side map: scan PERFORMED → event hasTeamSide
+    player_side_map = {}
+    for player in g.subjects(RDF.type, EKG.Player):
+        for event in g.objects(player, EKG.PERFORMED):
+            side_lit = g.value(event, EKG.hasTeamSide)
+            if side_lit:
+                player_side_map[str(player)] = str(side_lit)
+                break
+
+    # Match nodes
+    for subj in g.subjects(RDF.type, EKG.Match):
+        uid = local_name(subj)
+        add_node(subj, {
+            "id": uid, "nodeType": "match",
+            "label": get_label(subj),
+            "rawData": {"match_id": uid},
+        })
+
+    # Team nodes
+    for subj in g.subjects(RDF.type, EKG.Team):
+        uid = local_name(subj)
+        side = team_side_map.get(str(subj), "home")
+        add_node(subj, {
+            "id": uid, "nodeType": "team", "side": side,
+            "label": get_label(subj),
+            "rawData": {"team_id": uid, "side": side},
+        })
+
+    # Player nodes
+    for subj in g.subjects(RDF.type, EKG.Player):
+        uid = local_name(subj)
+        side = player_side_map.get(str(subj), "home")
+        jersey = g.value(subj, EKG.hasJerseyNumber)
+        add_node(subj, {
+            "id": uid, "nodeType": "player", "side": side,
+            "label": get_label(subj),
+            "rawData": {
+                "player_id": uid,
+                "jersey": str(jersey) if jersey else None,
+                "side": side,
+            },
+        })
+
+    # Event nodes
+    for evt_type in EVENT_TYPES:
+        for subj in g.subjects(RDF.type, EKG[evt_type]):
+            uid = local_name(subj)
+            time_raw = g.value(subj, EKG.hasTime)
+            label = f"{evt_type} {time_raw or ''}".strip()
+            raw = {"event_id": uid, "event_type": evt_type}
+            for pred, obj in g.predicate_objects(subj):
+                if isinstance(obj, Literal):
+                    raw[local_name(pred)] = str(obj)
+            add_node(subj, {"id": uid, "nodeType": evt_type, "label": label, "rawData": raw})
+
+    # Edges
+    for s, _, o in g.triples((None, EKG.PERFORMED, None)):
+        add_link(s, o, "PERFORMED")
+    for s, _, o in g.triples((None, EKG.INVOLVED_IN, None)):
+        add_link(s, o, "INVOLVED_IN")
+    for s, _, o in g.triples((None, EKG.IN_MATCH, None)):
+        add_link(s, o, "IN_MATCH")
+    for s, _, o in g.triples((None, EKG.PRECEDED_BY, None)):
+        add_link(s, o, "PRECEDED_BY")
+
+    return JSONResponse({"nodes": nodes, "links": links})
+
+
 # ── Static (production build) ──────────────────────────────────────────────
 
 @app.get("/")

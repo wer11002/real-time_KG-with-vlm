@@ -103,6 +103,8 @@ async def get_graph():
 
     TTL_PATH = BASE_DIR / "data" / "ekg.ttl"
     if not TTL_PATH.exists():
+        TTL_PATH = BASE_DIR / "ekg.ttl"   # fallback: project root
+    if not TTL_PATH.exists():
         return JSONResponse({"nodes": [], "links": [], "error": "ekg.ttl not found"})
 
     g = Graph()

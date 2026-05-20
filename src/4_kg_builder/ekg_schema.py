@@ -38,6 +38,15 @@ from rdflib import Graph, Namespace, URIRef, Literal, RDF, RDFS, OWL, XSD
 EKG  = Namespace("http://soccerekg.org/ontology#")
 INST = Namespace("http://soccerekg.org/data#")
 
+# Standard vocabularies for ontology alignment
+FOAF    = Namespace("http://xmlns.com/foaf/0.1/")
+SCHEMA  = Namespace("https://schema.org/")
+PROV    = Namespace("http://www.w3.org/ns/prov#")
+ORG     = Namespace("http://www.w3.org/ns/org#")
+TIME    = Namespace("http://www.w3.org/2006/time#")
+GEO     = Namespace("http://www.opengis.net/ont/geosparql#")
+DCTERMS = Namespace("http://purl.org/dc/terms/")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CLASSES (T-Box)
@@ -181,17 +190,26 @@ DATATYPE_PROPERTIES = {
 def build_tbox(g: Graph):
     """Populate the graph with T-Box definitions. Called once at startup."""
 
-    g.bind("ekg",  EKG)
-    g.bind("data", INST)
-    g.bind("owl",  OWL)
-    g.bind("rdf",  RDF)
-    g.bind("rdfs", RDFS)
-    g.bind("xsd",  XSD)
+    g.bind("ekg",     EKG)
+    g.bind("data",    INST)
+    g.bind("owl",     OWL)
+    g.bind("rdf",     RDF)
+    g.bind("rdfs",    RDFS)
+    g.bind("xsd",     XSD)
+    g.bind("foaf",    FOAF)
+    g.bind("schema",  SCHEMA)
+    g.bind("prov",    PROV)
+    g.bind("org",     ORG)
+    g.bind("time",    TIME)
+    g.bind("geo",     GEO)
+    g.bind("dcterms", DCTERMS)
 
     # OWL Ontology declaration (T02 fix)
-    g.add((EKG[""], RDF.type,       OWL.Ontology))
-    g.add((EKG[""], RDFS.label,     Literal("Soccer Event Knowledge Graph")))
+    g.add((EKG[""], RDF.type,        OWL.Ontology))
+    g.add((EKG[""], RDFS.label,      Literal("Soccer Event Knowledge Graph")))
     g.add((EKG[""], OWL.versionInfo, Literal("2.1")))
+    g.add((EKG[""], OWL.imports,     URIRef("http://xmlns.com/foaf/0.1/")))
+    g.add((EKG[""], OWL.imports,     URIRef("http://www.w3.org/ns/prov-o#")))
 
     # classes
     for name, uri in CLASSES.items():
@@ -236,6 +254,25 @@ def build_tbox(g: Graph):
     g.add((EKG.hasFoulType,    RDFS.domain, EKG.FoulEvent))
     g.add((EKG.hasTeamSide,    RDFS.domain, EKG.Event))
     g.add((EKG.hasBallVisible, RDFS.domain, EKG.Event))
+
+    # ── Ontology alignment — classes ───────────────────────────────────────
+    g.add((EKG.Player, RDFS.subClassOf, FOAF.Person))
+    g.add((EKG.Team,   RDFS.subClassOf, SCHEMA.SportsTeam))
+    g.add((EKG.Match,  RDFS.subClassOf, SCHEMA.SportsEvent))
+    g.add((EKG.Event,  RDFS.subClassOf, PROV.Activity))
+
+    # ── Ontology alignment — object properties ─────────────────────────────
+    g.add((EKG.IS_PERFORMED_BY, OWL.equivalentProperty, PROV.wasAssociatedWith))
+    g.add((EKG.PLAYS_FOR,       OWL.equivalentProperty, ORG.memberOf))
+    g.add((EKG.hasHomeTeam,     OWL.equivalentProperty, SCHEMA.homeTeam))
+    g.add((EKG.hasAwayTeam,     OWL.equivalentProperty, SCHEMA.awayTeam))
+    g.add((EKG.PRECEDED_BY,     OWL.equivalentProperty, TIME.before))
+    g.add((EKG.PRECEDES,        OWL.equivalentProperty, TIME.after))
+    g.add((EKG.TRIGGERED,       OWL.equivalentProperty, PROV.wasDerivedFrom))
+
+    # ── Ontology alignment — datatype properties ───────────────────────────
+    g.add((EKG.hasDate,        OWL.equivalentProperty, DCTERMS.date))
+    g.add((EKG.hasDescription, OWL.equivalentProperty, DCTERMS.description))
 
     return g
 

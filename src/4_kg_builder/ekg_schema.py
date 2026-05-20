@@ -262,17 +262,19 @@ def build_tbox(g: Graph):
     g.add((EKG.Event,  RDFS.subClassOf, PROV.Activity))
 
     # ── Ontology alignment — object properties ─────────────────────────────
-    g.add((EKG.IS_PERFORMED_BY, OWL.equivalentProperty, PROV.wasAssociatedWith))
-    g.add((EKG.PLAYS_FOR,       OWL.equivalentProperty, ORG.memberOf))
-    g.add((EKG.hasHomeTeam,     OWL.equivalentProperty, SCHEMA.homeTeam))
-    g.add((EKG.hasAwayTeam,     OWL.equivalentProperty, SCHEMA.awayTeam))
-    g.add((EKG.PRECEDED_BY,     OWL.equivalentProperty, TIME.before))
-    g.add((EKG.PRECEDES,        OWL.equivalentProperty, TIME.after))
-    g.add((EKG.TRIGGERED,       OWL.equivalentProperty, PROV.wasDerivedFrom))
+    # rdfs:subPropertyOf (not owl:equivalentProperty) — our properties are
+    # specializations of the standard ones, not identical to them.
+    # TRIGGERED, PRECEDED_BY, PRECEDES have no clean standard alignment:
+    #   TRIGGERED: prov:wasDerivedFrom is Entity→Entity, Activity is disjoint
+    #   PRECEDED_BY/PRECEDES: time:before/after require time:TemporalEntity
+    g.add((EKG.IS_PERFORMED_BY, RDFS.subPropertyOf, PROV.wasAssociatedWith))
+    g.add((EKG.PLAYS_FOR,       RDFS.subPropertyOf, ORG.memberOf))
+    g.add((EKG.hasHomeTeam,     RDFS.subPropertyOf, SCHEMA.homeTeam))
+    g.add((EKG.hasAwayTeam,     RDFS.subPropertyOf, SCHEMA.awayTeam))
 
     # ── Ontology alignment — datatype properties ───────────────────────────
-    g.add((EKG.hasDate,        OWL.equivalentProperty, DCTERMS.date))
-    g.add((EKG.hasDescription, OWL.equivalentProperty, DCTERMS.description))
+    g.add((EKG.hasDate,        RDFS.subPropertyOf, DCTERMS.date))
+    g.add((EKG.hasDescription, RDFS.subPropertyOf, DCTERMS.description))
 
     return g
 

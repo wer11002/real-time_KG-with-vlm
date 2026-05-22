@@ -30,19 +30,37 @@ for i, x in enumerate(load_text('data/soccernetball/class.txt')):
     classes[x + '-right'] = (i * 2) + 2
 
 # ── model ──────────────────────────────────────────────────────────────────
-class Args:
-    feature_arch  = 'rny002_gsf'
-    temporal_arch = 'ed_sgp_mixer'
-    clip_len      = 100
-    modality      = 'rgb'
-    num_classes   = 12
-    crop_dim      = None
-    batch_size    = 2
-    n_layers      = 2
+# Load checkpoint first — it may contain the training args so we don't have
+# to guess which fields TDEEDModel.__init__ requires.
+ckpt = torch.load(CHECKPOINT, map_location='cpu')
 
-args   = Args()
-model  = TDEEDModel(args=args)
-ckpt   = torch.load(CHECKPOINT, map_location='cpu')
+if isinstance(ckpt, dict) and 'args' in ckpt:
+    args = ckpt['args']
+    # override batch_size so we don't OOM on a 20-s test
+    args.batch_size = 2
+    print(f"Args loaded from checkpoint: {vars(args)}")
+else:
+    # Fallback: define every attribute the model references.
+    # radi_displacement (temporal radius), sgp_ks / sgp_r (SGP-Mixer params)
+    # are the ones most commonly missing from hand-written Args classes.
+    class Args:
+        feature_arch      = 'rny002_gsf'
+        temporal_arch     = 'ed_sgp_mixer'
+        clip_len          = 100
+        modality          = 'rgb'
+        num_classes       = 12
+        crop_dim          = None
+        batch_size        = 2
+        n_layers          = 2
+        radi_displacement = 2
+        sgp_ks            = 3
+        sgp_r             = 1
+    args = Args()
+    print("WARNING: args not found in checkpoint — using hardcoded defaults.")
+    print("If the model crashes, inspect the checkpoint keys with:")
+    print(f"  python -c \"import torch; c=torch.load('{CHECKPOINT}',map_location='cpu'); print(c.keys() if isinstance(c,dict) else type(c))\"")
+
+model = TDEEDModel(args=args)
 model.load(ckpt)
 model.eval()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'

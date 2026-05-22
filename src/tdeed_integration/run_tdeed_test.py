@@ -6,7 +6,11 @@ Must be run from the T-DEED root directory so relative module imports resolve:
     python /work/s2616011/real-time_KG-with-vlm/src/tdeed_integration/run_tdeed_test.py
 """
 
-import os, json, torch, numpy as np
+import os, sys, json, torch, numpy as np
+# run_all.sh does `cd T-DEED && python /full/path/this_script.py`
+# Python adds the *script* directory to sys.path, not the CWD — fix that:
+sys.path.insert(0, os.getcwd())
+
 from torch.utils.data import DataLoader
 from dataset.frame import ActionSpotVideoDataset
 from model.model import TDEEDModel

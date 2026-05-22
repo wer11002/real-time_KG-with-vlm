@@ -6,7 +6,7 @@ Must be run from the T-DEED root directory so relative module imports resolve:
     python /work/s2616011/real-time_KG-with-vlm/src/tdeed_integration/run_tdeed_test.py
 """
 
-import os, sys, json, torch, numpy as np
+import os, sys, re, json, torch, numpy as np
 # run_all.sh does `cd T-DEED && python /full/path/this_script.py`
 # Python adds the *script* directory to sys.path, not the CWD — fix that:
 sys.path.insert(0, os.getcwd())
@@ -33,17 +33,30 @@ for i, x in enumerate(load_text('data/soccernetball/class.txt')):
 # Load checkpoint first — it may contain the training args so we don't have
 # to guess which fields TDEEDModel.__init__ requires.
 ckpt = torch.load(CHECKPOINT, map_location='cpu')
-ckpt_keys = list(ckpt.keys()) if isinstance(ckpt, dict) else type(ckpt)
-print(f"Checkpoint keys: {ckpt_keys}")
 
 if isinstance(ckpt, dict) and 'args' in ckpt:
-    args = ckpt['args']
-    # override batch_size so we don't OOM on a 20-s test
+    args       = ckpt['args']
     args.batch_size = 2
+    state_dict = ckpt.get('state_dict', ckpt)
     print(f"Args loaded from checkpoint: {vars(args)}")
 else:
-    # Fallback: define known attributes; __getattr__ catches anything else so
-    # the script survives if the model needs additional fields.
+    # Checkpoint is a raw state_dict — reverse-engineer architecture params
+    # from weight tensor shapes so we don't guess wrong and get size mismatches.
+    state_dict = ckpt
+
+    # sgp_ks: psi conv kernel size (directly readable)
+    sgp_ks = state_dict['_temp_fine._sgp.0.psi.weight'].shape[2]
+    # radi_displacement: convkw kernel = 2*radi+1  →  radi = (size-1)//2
+    radi_displacement = (state_dict['_temp_fine._sgp.0.convkw.weight'].shape[2] - 1) // 2
+    # n_layers: count SGP-Mixer blocks
+    n_sgp_mixer = sum(
+        1 for k in state_dict
+        if re.match(r'_temp_fine\._sgpMixer\.\d+\.ln1\.weight$', k))
+
+    print(f"Inferred from checkpoint shapes: "
+          f"sgp_ks={sgp_ks}  radi_displacement={radi_displacement}  "
+          f"n_sgp_mixer={n_sgp_mixer}")
+
     class Args:
         def __init__(self):
             self.feature_arch      = 'rny002_gsf'
@@ -53,23 +66,36 @@ else:
             self.num_classes       = 12
             self.crop_dim          = None
             self.batch_size        = 2
-            self.n_layers          = 2
-            self.radi_displacement = 2
-            self.sgp_ks            = 3
+            self.n_layers          = n_sgp_mixer if n_sgp_mixer > 0 else 2
+            self.radi_displacement = radi_displacement
+            self.sgp_ks            = sgp_ks
             self.sgp_r             = 1
-            self.event_team        = True   # SoccerNet ball: left/right side
+            self.event_team        = True
 
         def __getattr__(self, name):
-            # Only reached for attributes NOT set in __init__
-            print(f"  WARNING: Args missing '{name}' — defaulting to None; "
-                  f"add it to the fallback Args if the model crashes")
+            print(f"  WARNING: Args missing '{name}' — defaulting to None")
             return None
 
     args = Args()
-    print("WARNING: args not found in checkpoint — using hardcoded defaults.")
+    print(f"Fallback Args: { {k: v for k, v in vars(args).items()} }")
 
 model = TDEEDModel(args=args)
-model.load(ckpt)
+
+# Try strict load first; fall back to shape-filtered strict=False if head
+# architecture differs between checkpoint and current codebase version.
+try:
+    model.load(state_dict)
+except RuntimeError as e:
+    print(f"Strict load failed — retrying with shape-compatible keys only")
+    print(f"  ({str(e)[:300]})")
+    model_sd   = model._model.state_dict()
+    compatible = {k: v for k, v in state_dict.items()
+                  if k in model_sd and v.shape == model_sd[k].shape}
+    missing    = [k for k in model_sd  if k not in compatible]
+    extra      = [k for k in state_dict if k not in compatible]
+    model._model.load_state_dict(compatible, strict=False)
+    print(f"  Loaded {len(compatible)}/{len(model_sd)} tensors; "
+          f"{len(missing)} random-initialised, {len(extra)} checkpoint-only skipped")
 model.eval()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model  = model.to(device)

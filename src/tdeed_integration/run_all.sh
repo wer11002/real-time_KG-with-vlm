@@ -8,9 +8,10 @@
 
 set -euo pipefail
 
-PIPELINE_DIR="/work/s2616011/real-time_KG-with-vlm"
-TDEED_DIR="/work/s2616011/models/T-DEED"
-SCRIPT_DIR="$PIPELINE_DIR/src/tdeed_integration"
+# Derive paths from this script's own location — works wherever home lives
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PIPELINE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+TDEED_DIR="$(cd "$PIPELINE_DIR/../models/T-DEED" && pwd)"
 
 echo "══════════════════════════════════════════"
 echo " T-DEED integration test (20-second clip)"

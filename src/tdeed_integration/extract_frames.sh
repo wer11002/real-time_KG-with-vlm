@@ -9,7 +9,8 @@
 
 set -euo pipefail
 
-DATA_DIR="/work/s2616011/real-time_KG-with-vlm/data"
+PIPELINE_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+DATA_DIR="$PIPELINE_DIR/data"
 OUT_DIR="/tmp/tdeed_test_frames"
 
 # ── find the first available video ─────────────────────────────────────────

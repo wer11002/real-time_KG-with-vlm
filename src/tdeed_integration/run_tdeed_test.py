@@ -33,6 +33,8 @@ for i, x in enumerate(load_text('data/soccernetball/class.txt')):
 # Load checkpoint first — it may contain the training args so we don't have
 # to guess which fields TDEEDModel.__init__ requires.
 ckpt = torch.load(CHECKPOINT, map_location='cpu')
+ckpt_keys = list(ckpt.keys()) if isinstance(ckpt, dict) else type(ckpt)
+print(f"Checkpoint keys: {ckpt_keys}")
 
 if isinstance(ckpt, dict) and 'args' in ckpt:
     args = ckpt['args']
@@ -40,25 +42,31 @@ if isinstance(ckpt, dict) and 'args' in ckpt:
     args.batch_size = 2
     print(f"Args loaded from checkpoint: {vars(args)}")
 else:
-    # Fallback: define every attribute the model references.
-    # radi_displacement (temporal radius), sgp_ks / sgp_r (SGP-Mixer params)
-    # are the ones most commonly missing from hand-written Args classes.
+    # Fallback: define known attributes; __getattr__ catches anything else so
+    # the script survives if the model needs additional fields.
     class Args:
-        feature_arch      = 'rny002_gsf'
-        temporal_arch     = 'ed_sgp_mixer'
-        clip_len          = 100
-        modality          = 'rgb'
-        num_classes       = 12
-        crop_dim          = None
-        batch_size        = 2
-        n_layers          = 2
-        radi_displacement = 2
-        sgp_ks            = 3
-        sgp_r             = 1
+        def __init__(self):
+            self.feature_arch      = 'rny002_gsf'
+            self.temporal_arch     = 'ed_sgp_mixer'
+            self.clip_len          = 100
+            self.modality          = 'rgb'
+            self.num_classes       = 12
+            self.crop_dim          = None
+            self.batch_size        = 2
+            self.n_layers          = 2
+            self.radi_displacement = 2
+            self.sgp_ks            = 3
+            self.sgp_r             = 1
+            self.event_team        = True   # SoccerNet ball: left/right side
+
+        def __getattr__(self, name):
+            # Only reached for attributes NOT set in __init__
+            print(f"  WARNING: Args missing '{name}' — defaulting to None; "
+                  f"add it to the fallback Args if the model crashes")
+            return None
+
     args = Args()
     print("WARNING: args not found in checkpoint — using hardcoded defaults.")
-    print("If the model crashes, inspect the checkpoint keys with:")
-    print(f"  python -c \"import torch; c=torch.load('{CHECKPOINT}',map_location='cpu'); print(c.keys() if isinstance(c,dict) else type(c))\"")
 
 model = TDEEDModel(args=args)
 model.load(ckpt)

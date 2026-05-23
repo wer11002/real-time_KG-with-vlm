@@ -96,10 +96,11 @@ except RuntimeError as e:
     model._model.load_state_dict(compatible, strict=False)
     print(f"  Loaded {len(compatible)}/{len(model_sd)} tensors; "
           f"{len(missing)} random-initialised, {len(extra)} checkpoint-only skipped")
-model.eval()
+# TDEEDModel is a custom wrapper — eval/to/__call__ live on model._model (the Impl nn.Module)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model  = model.to(device)
-print(f"Model loaded on {device}")
+model._model.eval()
+model._model = model._model.to(device)
+print(f"Model on {device}")
 
 # ── dataset / dataloader ───────────────────────────────────────────────────
 dataset = ActionSpotVideoDataset(
@@ -109,10 +110,21 @@ loader  = DataLoader(dataset, batch_size=args.batch_size,
 
 # ── inference ──────────────────────────────────────────────────────────────
 all_preds = []
-for batch in loader:
+for i, batch in enumerate(loader):
     frames = batch['frame'].to(device)
     with torch.no_grad():
-        pred = model(frames)
+        out = model._model(frames)
+    # Inspect output structure on first batch to handle any return format
+    if i == 0:
+        if isinstance(out, tuple):
+            print(f"  model output: tuple len={len(out)}  "
+                  f"shapes={[x.shape if hasattr(x,'shape') else type(x) for x in out]}")
+        else:
+            print(f"  model output: {type(out)} shape={getattr(out,'shape',None)}")
+    # Extract the classification score tensor (shape B×T×C or B×C)
+    pred = out[0] if isinstance(out, tuple) else out
+    if isinstance(pred, dict):
+        pred = pred.get('cls', next(iter(pred.values())))
     all_preds.append(pred.cpu())
 
 pred_tensor = torch.cat(all_preds, dim=0)

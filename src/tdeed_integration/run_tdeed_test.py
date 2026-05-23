@@ -24,10 +24,13 @@ OUT_DIR    = '/tmp/tdeed_test_out'
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ── class list ─────────────────────────────────────────────────────────────
+# Model outputs 12 base action classes + 1 background = 13 columns.
+# Team side (left/right) comes from a separate head not fully loaded.
+# Use base class names only (values 1-12) so process_frame_predictions
+# indexes scores[:, 1..12] which are all within the 13-column array.
 classes = {}
 for i, x in enumerate(load_text('data/soccernetball/class.txt')):
-    classes[x + '-left']  = (i * 2) + 1
-    classes[x + '-right'] = (i * 2) + 2
+    classes[x] = i + 1
 
 # ── model ──────────────────────────────────────────────────────────────────
 # Load checkpoint first — it may contain the training args so we don't have

@@ -24,13 +24,12 @@ OUT_DIR    = '/tmp/tdeed_test_out'
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ── class list ─────────────────────────────────────────────────────────────
-# Model outputs 12 base action classes + 1 background = 13 columns.
-# Team side (left/right) comes from a separate head not fully loaded.
-# Use base class names only (values 1-12) so process_frame_predictions
-# indexes scores[:, 1..12] which are all within the 13-column array.
+# Model has event_team=True: each base class has a left and right variant.
+# classes[x+'-left'] = (i*2)+1, classes[x+'-right'] = (i*2)+2 → values 1-24.
 classes = {}
 for i, x in enumerate(load_text('data/soccernetball/class.txt')):
-    classes[x] = i + 1
+    classes[x + '-left']  = (i * 2) + 1
+    classes[x + '-right'] = (i * 2) + 2
 
 # ── model ──────────────────────────────────────────────────────────────────
 # Load checkpoint first — it may contain the training args so we don't have
@@ -99,6 +98,9 @@ except RuntimeError as e:
     model._model.load_state_dict(compatible, strict=False)
     print(f"  Loaded {len(compatible)}/{len(model_sd)} tensors; "
           f"{len(missing)} random-initialised, {len(extra)} checkpoint-only skipped")
+    print("WARNING: 11 displacement-head tensors randomly initialised")
+    print("  Classification output is valid; sub-frame displacement is not.")
+
 # TDEEDModel is a custom wrapper — eval/to/__call__ live on model._model (the Impl nn.Module)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model._model.eval()
@@ -124,19 +126,12 @@ loader  = DataLoader(dataset, batch_size=args.batch_size,
                      shuffle=False, num_workers=2, pin_memory=(device == 'cuda'))
 
 # ── inference ──────────────────────────────────────────────────────────────
-# process_frame_predictions expects pred_dict = {video: (scores_arr, support_arr)}
-# accumulated over all clips before calling it.
-pred_dict = {}
-for video, video_len, _ in dataset.videos:
-    pred_dict[video] = (
-        np.zeros((video_len, args.num_classes + 1), np.float32),
-        np.zeros(video_len, np.int32))
-
+# Collect im_feat logits from all batches into a list, then cat into pred_tensor.
+# process_frame_predictions expects a raw (N_frames, num_classes+1) torch tensor.
 import torch.nn.functional as F
 
+all_logits = []
 for i, batch in enumerate(loader):
-    videos = batch['video']           # list[str]
-    starts = batch['start'].numpy()   # (B,) clip start frame (stride-adjusted)
     frames = batch['frame'].to(device)
 
     with torch.no_grad():
@@ -144,59 +139,46 @@ for i, batch in enumerate(loader):
 
     # im_feat: (B, clip_len, num_classes+1) logits
     cls_logits = out['im_feat'] if isinstance(out, dict) else out
-    cls_probs  = F.softmax(cls_logits, dim=-1).cpu().numpy()
 
     if i == 0:
-        print(f"  clip scores shape: {cls_probs.shape}")
+        print(f"  clip logits shape: {cls_logits.shape}")
 
-    clip_len = cls_probs.shape[1]
-    for j in range(len(videos)):
-        video = videos[j]
-        start = int(starts[j])
-        vid_scores, vid_support = pred_dict[video]
-        vid_len = len(vid_scores)
+    all_logits.append(cls_logits.cpu())
 
-        s  = max(0, start)
-        cs = max(0, -start)          # offset into clip (for padded start)
-        e  = min(start + clip_len, vid_len)
-        ce = cs + (e - s)
-        if ce > cs:
-            chunk = cls_probs[j, cs:ce]
-            vid_scores[s:e]  += chunk
-            vid_support[s:e] += (chunk.sum(axis=1) != 0).astype(np.int32)
+# Concatenate all clips along the batch*time dimension into (N_clips*clip_len, C+1)
+pred_tensor = torch.cat([t.view(-1, t.shape[-1]) for t in all_logits], dim=0)
+print(f"pred_tensor shape: {pred_tensor.shape}")
 
-# process_frame_predictions returns (err, f1, pred_events, pred_events_high_recall, pred_scores)
-_, _, pred_events, _, _ = process_frame_predictions(dataset, classes, pred_dict)
-results = soft_non_maximum_supression(pred_events, window=4)
-# results: list of {video, events, fps, num_events}; events: list of {label, frame, score}
-all_preds_list = [e for r in results for e in r.get('events', [])]
+# process_frame_predictions(dataset, classes, pred_tensor) → single dict
+results = process_frame_predictions(dataset, classes, pred_tensor)
+results = soft_non_maximum_supression(results, window=4)
+pred_events = results.get('predictions', [])
+# Each event: {'gameTime': str, 'label': str, 'confidence': float, 'team': str, 'position': str}
 
 # ── filter to EKG-relevant classes ────────────────────────────────────────
-EKG_CLASSES    = {'SHOT', 'GOAL', 'DRIVE', 'HEADER', 'CORNER', 'FREE KICK'}
+EKG_CLASSES    = {'SHOT', 'GOAL', 'FREE KICK'}
 CONF_THRESHOLD = 0.25
 
 ekg_detections = [
-    p for p in all_preds_list
+    p for p in pred_events
     if any(ec in p['label'].upper() for ec in EKG_CLASSES)
-    and p['score'] >= CONF_THRESHOLD
+    and p['confidence'] >= CONF_THRESHOLD
 ]
-high_conf = [p for p in all_preds_list if p['score'] >= 0.5]
+high_conf = [p for p in pred_events if p['confidence'] >= 0.5]
 
 # ── report ─────────────────────────────────────────────────────────────────
 print(f"\n=== T-DEED DETECTIONS (conf >= {CONF_THRESHOLD}) ===")
-print(f"Total predictions : {len(all_preds_list)}")
+print(f"Total predictions : {len(pred_events)}")
 print(f"EKG-relevant      : {len(ekg_detections)}")
-for p in sorted(ekg_detections, key=lambda x: x['frame']):
-    t = p['frame'] / 25.0
-    print(f"  frame:{p['frame']:<5} t={t:5.1f}s  {p['label']:<20} conf:{p['score']:.3f}")
+for p in sorted(ekg_detections, key=lambda x: x['gameTime']):
+    print(f"  {p['gameTime']}  {p['label']:<25} conf:{p['confidence']:.3f}  team:{p['team']}  pos:{p['position']}")
 
 print(f"\n=== ALL HIGH CONF (>= 0.5) ===")
-for p in sorted(high_conf, key=lambda x: x['frame']):
-    t = p['frame'] / 25.0
-    print(f"  frame:{p['frame']:<5} t={t:5.1f}s  {p['label']:<20} conf:{p['score']:.3f}")
+for p in sorted(high_conf, key=lambda x: x['gameTime']):
+    print(f"  {p['gameTime']}  {p['label']:<25} conf:{p['confidence']:.3f}  team:{p['team']}  pos:{p['position']}")
 
 out_file = f'{OUT_DIR}/detections.json'
 json.dump({'ekg_detections': ekg_detections, 'high_conf': high_conf,
-           'all_preds': all_preds_list},
+           'all_preds': pred_events},
           open(out_file, 'w'), indent=2)
 print(f"\nSaved to {out_file}")

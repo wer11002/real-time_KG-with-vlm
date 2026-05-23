@@ -81,18 +81,29 @@ model = TDEEDModel(args=args)
 try:
     model.load(state_dict)
 except RuntimeError as e:
-    print(f"Strict load failed — retrying with shape-compatible keys only")
-    print(f"  ({str(e)[:300]})")
+    print(f"Strict load failed — remapping old _fc1/_fc2 head keys to current _fc_out")
+    print(f"  ({str(e)[:200]})")
+    # Checkpoint was saved with two heads (_fc1 = class, _fc2 = team).
+    # Current codebase merged them into a single _fc_out.
+    # Remap _fc1._fc_out → _fc_out so the real class-prediction weights load.
+    remapped = {}
+    for k, v in state_dict.items():
+        if k == '_pred_fine._fc1._fc_out.weight':
+            remapped['_pred_fine._fc_out.weight'] = v
+        elif k == '_pred_fine._fc1._fc_out.bias':
+            remapped['_pred_fine._fc_out.bias'] = v
+        else:
+            remapped[k] = v
     model_sd   = model._model.state_dict()
-    compatible = {k: v for k, v in state_dict.items()
+    compatible = {k: v for k, v in remapped.items()
                   if k in model_sd and v.shape == model_sd[k].shape}
     missing    = [k for k in model_sd  if k not in compatible]
-    extra      = [k for k in state_dict if k not in compatible]
+    extra      = [k for k in remapped   if k not in compatible]
     model._model.load_state_dict(compatible, strict=False)
     print(f"  Loaded {len(compatible)}/{len(model_sd)} tensors; "
           f"{len(missing)} random-initialised, {len(extra)} checkpoint-only skipped")
-    print("WARNING: 11 displacement-head tensors randomly initialised")
-    print("  Classification output is valid; sub-frame displacement is not.")
+    if missing:
+        print(f"  Still random: {missing}")
 
 # TDEEDModel is a custom wrapper — eval/to/__call__ live on model._model
 device = 'cuda' if torch.cuda.is_available() else 'cpu'

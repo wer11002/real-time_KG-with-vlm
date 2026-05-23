@@ -16,11 +16,17 @@ from model.model import TDEEDModel
 from util.io import load_text
 from util.eval import process_frame_predictions, soft_non_maximum_supression
 
-FRAME_DIR  = '/work/s2616011/tdeed_full_frames'
+_SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
+_PIPELINE_DIR = os.path.abspath(os.path.join(_SCRIPT_DIR, '..', '..'))
+_WORK_DIR     = os.path.abspath(os.path.join(_PIPELINE_DIR, '..'))  # parent of project
+
+FRAME_DIR  = os.path.join(_WORK_DIR, 'tdeed_full_frames')
 VIDEO_NAME = 'full_match'
 CHECKPOINT = 'checkpoints/checkpoint_best.pt'
-OUT_DIR    = '/work/s2616011/tdeed_full_out'
+OUT_DIR    = os.path.join(_WORK_DIR, 'tdeed_full_out')
 os.makedirs(OUT_DIR, exist_ok=True)
+print(f"FRAME_DIR : {FRAME_DIR}")
+print(f"OUT_DIR   : {OUT_DIR}")
 
 # ── helpers ────────────────────────────────────────────────────────────────
 def frame_to_gametime(frame_num, fps=25):

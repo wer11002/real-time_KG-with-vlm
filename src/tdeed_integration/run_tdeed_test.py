@@ -121,26 +121,48 @@ loader  = DataLoader(dataset, batch_size=args.batch_size,
                      shuffle=False, num_workers=2, pin_memory=(device == 'cuda'))
 
 # ── inference ──────────────────────────────────────────────────────────────
-all_preds = []
-for i, batch in enumerate(loader):
-    frames = batch['frame'].to(device)
-    with torch.no_grad():
-        out = model._model(frames)
-    # Inspect output structure on first batch to handle any return format
-    if i == 0:
-        if isinstance(out, tuple):
-            print(f"  model output: tuple len={len(out)}  "
-                  f"shapes={[x.shape if hasattr(x,'shape') else type(x) for x in out]}")
-        else:
-            print(f"  model output: {type(out)} shape={getattr(out,'shape',None)}")
-    # Extract the classification score tensor (shape B×T×C or B×C)
-    pred = out[0] if isinstance(out, tuple) else out
-    if isinstance(pred, dict):
-        pred = pred.get('cls', next(iter(pred.values())))
-    all_preds.append(pred.cpu())
+# process_frame_predictions expects pred_dict = {video: (scores_arr, support_arr)}
+# accumulated over all clips before calling it.
+pred_dict = {}
+for video, video_len, _ in dataset.videos:
+    pred_dict[video] = (
+        np.zeros((video_len, len(classes) + 1), np.float32),
+        np.zeros(video_len, np.int32))
 
-pred_tensor = torch.cat(all_preds, dim=0)
-results     = process_frame_predictions(dataset, classes, pred_tensor)
+import torch.nn.functional as F
+
+for i, batch in enumerate(loader):
+    videos = batch['video']           # list[str]
+    starts = batch['start'].numpy()   # (B,) clip start frame (stride-adjusted)
+    frames = batch['frame'].to(device)
+
+    with torch.no_grad():
+        out, _ = model._model(frames)  # out: dict with 'im_feat' when radi>0
+
+    # im_feat: (B, clip_len, num_classes+1) logits
+    cls_logits = out['im_feat'] if isinstance(out, dict) else out
+    cls_probs  = F.softmax(cls_logits, dim=-1).cpu().numpy()
+
+    if i == 0:
+        print(f"  clip scores shape: {cls_probs.shape}")
+
+    clip_len = cls_probs.shape[1]
+    for j in range(len(videos)):
+        video = videos[j]
+        start = int(starts[j])
+        vid_scores, vid_support = pred_dict[video]
+        vid_len = len(vid_scores)
+
+        s  = max(0, start)
+        cs = max(0, -start)          # offset into clip (for padded start)
+        e  = min(start + clip_len, vid_len)
+        ce = cs + (e - s)
+        if ce > cs:
+            chunk = cls_probs[j, cs:ce]
+            vid_scores[s:e]  += chunk
+            vid_support[s:e] += (chunk.sum(axis=1) != 0).astype(np.int32)
+
+results = process_frame_predictions(dataset, classes, pred_dict)
 results     = soft_non_maximum_supression(results, window=4)
 
 # ── filter to EKG-relevant classes ────────────────────────────────────────

@@ -28,7 +28,7 @@ echo "Using video: $VIDEO"
 rm -rf "/tmp/tdeed_test_frames"
 mkdir -p "$OUT_DIR"
 
-ffmpeg -y -ss 01:15:00 -i "$VIDEO" -t 20 -vf fps=25 \
+ffmpeg -y -ss 01:03:50 -i "$VIDEO" -t 20 -vf fps=25 \
     -q:v 2 "$OUT_DIR/frame%d.jpg"
 
 COUNT=$(ls "$OUT_DIR"/frame*.jpg 2>/dev/null | wc -l)

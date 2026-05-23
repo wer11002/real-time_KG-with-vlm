@@ -99,6 +99,18 @@ except RuntimeError as e:
                   if k in model_sd and v.shape == model_sd[k].shape}
     missing    = [k for k in model_sd  if k not in compatible]
     extra      = [k for k in remapped   if k not in compatible]
+
+    # Diagnose shape mismatches for keys that exist in both but didn't load
+    for k in missing:
+        if k in remapped:
+            print(f"  SHAPE MISMATCH: {k}  ckpt={remapped[k].shape}  model={model_sd[k].shape}")
+        elif k in state_dict:
+            print(f"  SHAPE MISMATCH: {k}  ckpt={state_dict[k].shape}  model={model_sd[k].shape}")
+        else:
+            ckpt_convkw = [ck for ck in remapped if 'convkw' in ck]
+            if 'convkw' in k and ckpt_convkw:
+                print(f"  KEY MISSING IN CKPT: {k}  (ckpt convkw keys: {ckpt_convkw[:3]})")
+
     model._model.load_state_dict(compatible, strict=False)
     print(f"  Loaded {len(compatible)}/{len(model_sd)} tensors; "
           f"{len(missing)} random-initialised, {len(extra)} checkpoint-only skipped")

@@ -198,7 +198,7 @@ all_preds_list = [e for r in results for e in r.get('events', [])]
 
 # ── filter to EKG-relevant classes ────────────────────────────────────────
 EKG_CLASSES    = {'SHOT', 'GOAL', 'FREE KICK', 'FREE_KICK'}
-CONF_THRESHOLD = 0.15
+CONF_THRESHOLD = 0.10
 
 ekg_detections = [
     p for p in all_preds_list

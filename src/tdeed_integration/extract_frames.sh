@@ -1,38 +1,39 @@
 #!/usr/bin/env bash
-# Step 1 — extract 500 frames (20 s @ 25 fps) starting at 5:00 from the
-# first match video found under data/.
+# Extract ALL frames from the full match for T-DEED inference.
+# Uses 224p for disk efficiency (~3 GB vs ~15 GB for 720p).
+# Skips extraction if enough frames already exist (re-run safe).
 #
-# Usage:
-#   bash src/tdeed_integration/extract_frames.sh
-#
-# Output: /tmp/tdeed_test_frames/test_20s/frame1.jpg … frame500.jpg
+# Output: /work/s2616011/tdeed_full_frames/full_match/frame1.jpg …
 
 set -euo pipefail
 
-PIPELINE_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PIPELINE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DATA_DIR="$PIPELINE_DIR/data"
-OUT_DIR="/tmp/tdeed_test_frames/test_20s"
+OUT_DIR="/work/s2616011/tdeed_full_frames/full_match"
 
-# ── find the first available video ─────────────────────────────────────────
-VIDEO=$(find "$DATA_DIR" -name "720p.mp4" | sort | head -1)
+# ── find video (prefer 224p for disk efficiency) ───────────────────────────
+VIDEO=$(find "$DATA_DIR" -name "224p.mp4" | sort | head -1)
 if [[ -z "$VIDEO" ]]; then
-    VIDEO=$(find "$DATA_DIR" -name "224p.mp4" | sort | head -1)
+    VIDEO=$(find "$DATA_DIR" -name "720p.mp4" | sort | head -1)
 fi
 if [[ -z "$VIDEO" ]]; then
-    echo "ERROR: no 720p.mp4 or 224p.mp4 found under $DATA_DIR" >&2
+    echo "ERROR: no 224p.mp4 or 720p.mp4 found under $DATA_DIR" >&2
     exit 1
 fi
 echo "Using video: $VIDEO"
 
-# ── extract 500 frames ─────────────────────────────────────────────────────
-rm -rf "/tmp/tdeed_test_frames"
-mkdir -p "$OUT_DIR"
+# ── skip if already extracted ───────────────────────────────────────────────
+COUNT=$(ls "$OUT_DIR"/frame*.jpg 2>/dev/null | wc -l || echo 0)
+if [[ "$COUNT" -gt 100000 ]]; then
+    echo "Found $COUNT frames in $OUT_DIR — skipping extraction"
+    exit 0
+fi
 
-ffmpeg -y -ss 01:03:50 -i "$VIDEO" -t 20 -vf fps=25 \
-    -q:v 2 "$OUT_DIR/frame%d.jpg"
+# ── extract all frames ─────────────────────────────────────────────────────
+mkdir -p "$OUT_DIR"
+echo "Extracting all frames (this takes a few minutes)..."
+ffmpeg -y -i "$VIDEO" -vf fps=25 -q:v 2 "$OUT_DIR/frame%d.jpg"
 
 COUNT=$(ls "$OUT_DIR"/frame*.jpg 2>/dev/null | wc -l)
 echo "Extracted $COUNT frames to $OUT_DIR"
-if [[ "$COUNT" -lt 400 ]]; then
-    echo "WARNING: expected ~500 frames, got $COUNT — video may be shorter than 5:20" >&2
-fi

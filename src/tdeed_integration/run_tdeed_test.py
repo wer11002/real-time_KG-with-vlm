@@ -103,8 +103,20 @@ model._model = model._model.to(device)
 print(f"Model on {device}")
 
 # ── dataset / dataloader ───────────────────────────────────────────────────
+# ActionSpotVideoDataset(classes, label_file, frame_dir, modality, clip_len, ...)
+# Frame naming: frame{N}.jpg (1-indexed, no zero-padding) per soccernetball convention
+video_dir  = os.path.join(FRAME_DIR, VIDEO_NAME)
+num_frames = len([f for f in os.listdir(video_dir) if f.endswith('.jpg')])
+print(f"Found {num_frames} frames in {video_dir}")
+
+LABEL_FILE = '/tmp/tdeed_test_labels.json'
+json.dump([{'video': VIDEO_NAME, 'num_frames': num_frames, 'fps': 25, 'events': []}],
+          open(LABEL_FILE, 'w'))
+
 dataset = ActionSpotVideoDataset(
-    classes, FRAME_DIR, VIDEO_NAME, args, 'fps', True)
+    classes, LABEL_FILE, FRAME_DIR,
+    modality='rgb', clip_len=args.clip_len,
+    overlap_len=0, dataset='soccernetball')
 loader  = DataLoader(dataset, batch_size=args.batch_size,
                      shuffle=False, num_workers=2, pin_memory=(device == 'cuda'))
 

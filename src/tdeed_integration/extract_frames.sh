@@ -5,7 +5,7 @@
 # Usage:
 #   bash src/tdeed_integration/extract_frames.sh
 #
-# Output: /tmp/tdeed_test_frames/test_20s/frame000001.jpg … frame000500.jpg
+# Output: /tmp/tdeed_test_frames/test_20s/frame1.jpg … frame500.jpg
 
 set -euo pipefail
 
@@ -29,7 +29,7 @@ rm -rf "/tmp/tdeed_test_frames"
 mkdir -p "$OUT_DIR"
 
 ffmpeg -y -ss 00:05:00 -i "$VIDEO" -t 20 -vf fps=25 \
-    -q:v 2 "$OUT_DIR/frame%06d.jpg"
+    -q:v 2 "$OUT_DIR/frame%d.jpg"
 
 COUNT=$(ls "$OUT_DIR"/frame*.jpg 2>/dev/null | wc -l)
 echo "Extracted $COUNT frames to $OUT_DIR"

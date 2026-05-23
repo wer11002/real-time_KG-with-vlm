@@ -165,35 +165,38 @@ for i, batch in enumerate(loader):
             vid_scores[s:e]  += chunk
             vid_support[s:e] += (chunk.sum(axis=1) != 0).astype(np.int32)
 
-results = process_frame_predictions(dataset, classes, pred_dict)
-results     = soft_non_maximum_supression(results, window=4)
+# process_frame_predictions returns (err, f1, pred_events, pred_events_high_recall, pred_scores)
+_, _, pred_events, _, _ = process_frame_predictions(dataset, classes, pred_dict)
+results = soft_non_maximum_supression(pred_events, window=4)
+# results: list of {video, events, fps, num_events}; events: list of {label, frame, score}
+all_preds_list = [e for r in results for e in r.get('events', [])]
 
 # ── filter to EKG-relevant classes ────────────────────────────────────────
-EKG_CLASSES    = {'SHOT', 'GOAL', 'FREE KICK', 'CORNER', 'CORNER KICK'}
+EKG_CLASSES    = {'SHOT', 'GOAL', 'DRIVE', 'HEADER', 'CORNER', 'FREE KICK'}
 CONF_THRESHOLD = 0.25
 
-all_preds_list = results.get('predictions', [])
 ekg_detections = [
     p for p in all_preds_list
     if any(ec in p['label'].upper() for ec in EKG_CLASSES)
-    and p['confidence'] >= CONF_THRESHOLD
+    and p['score'] >= CONF_THRESHOLD
 ]
-high_conf = [p for p in all_preds_list if p['confidence'] >= 0.5]
+high_conf = [p for p in all_preds_list if p['score'] >= 0.5]
 
 # ── report ─────────────────────────────────────────────────────────────────
-print(f"\n=== T-DEED EKG-RELEVANT DETECTIONS (conf >= {CONF_THRESHOLD}) ===")
+print(f"\n=== T-DEED DETECTIONS (conf >= {CONF_THRESHOLD}) ===")
 print(f"Total predictions : {len(all_preds_list)}")
 print(f"EKG-relevant      : {len(ekg_detections)}")
-for p in sorted(ekg_detections, key=lambda x: x['position']):
-    print(f"  {p['gameTime']:<12} {p['label']:<25} conf:{p['confidence']:.3f}"
-          f"  team:{p.get('team','?')}  frame:{p['position']}")
+for p in sorted(ekg_detections, key=lambda x: x['frame']):
+    t = p['frame'] / 25.0
+    print(f"  frame:{p['frame']:<5} t={t:5.1f}s  {p['label']:<20} conf:{p['score']:.3f}")
 
 print(f"\n=== ALL HIGH CONF (>= 0.5) ===")
-for p in sorted(high_conf, key=lambda x: x['position']):
-    print(f"  {p['gameTime']:<12} {p['label']:<25} conf:{p['confidence']:.3f}"
-          f"  team:{p.get('team','?')}")
+for p in sorted(high_conf, key=lambda x: x['frame']):
+    t = p['frame'] / 25.0
+    print(f"  frame:{p['frame']:<5} t={t:5.1f}s  {p['label']:<20} conf:{p['score']:.3f}")
 
 out_file = f'{OUT_DIR}/detections.json'
-json.dump({'ekg_detections': ekg_detections, 'high_conf': high_conf},
+json.dump({'ekg_detections': ekg_detections, 'high_conf': high_conf,
+           'all_preds': all_preds_list},
           open(out_file, 'w'), indent=2)
 print(f"\nSaved to {out_file}")

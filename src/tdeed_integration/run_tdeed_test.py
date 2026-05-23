@@ -97,20 +97,20 @@ except RuntimeError as e:
     model_sd   = model._model.state_dict()
     compatible = {k: v for k, v in remapped.items()
                   if k in model_sd and v.shape == model_sd[k].shape}
-    missing    = [k for k in model_sd  if k not in compatible]
-    extra      = [k for k in remapped   if k not in compatible]
 
-    # Diagnose shape mismatches for keys that exist in both but didn't load
-    for k in missing:
-        if k in remapped:
-            print(f"  SHAPE MISMATCH: {k}  ckpt={remapped[k].shape}  model={model_sd[k].shape}")
-        elif k in state_dict:
-            print(f"  SHAPE MISMATCH: {k}  ckpt={state_dict[k].shape}  model={model_sd[k].shape}")
-        else:
-            ckpt_convkw = [ck for ck in remapped if 'convkw' in ck]
-            if 'convkw' in k and ckpt_convkw:
-                print(f"  KEY MISSING IN CKPT: {k}  (ckpt convkw keys: {ckpt_convkw[:3]})")
+    # convkw: checkpoint kernel=41 (radi=20), model kernel=11 (different default).
+    # Interpolate checkpoint weights to model size — preserves learned temporal
+    # pattern better than random init.
+    for k in model_sd:
+        if k not in compatible and 'convkw' in k and k in remapped:
+            ckpt_w = remapped[k].float()               # [C, 1, 41]
+            target  = model_sd[k].shape[2]             # 11
+            resized = F.interpolate(ckpt_w, size=target, mode='linear', align_corners=False)
+            compatible[k] = resized.to(model_sd[k].dtype)
+            print(f"  Interpolated {k}: kernel {ckpt_w.shape[2]} → {target}")
 
+    missing = [k for k in model_sd  if k not in compatible]
+    extra   = [k for k in remapped   if k not in compatible]
     model._model.load_state_dict(compatible, strict=False)
     print(f"  Loaded {len(compatible)}/{len(model_sd)} tensors; "
           f"{len(missing)} random-initialised, {len(extra)} checkpoint-only skipped")

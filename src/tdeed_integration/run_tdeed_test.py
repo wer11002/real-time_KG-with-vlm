@@ -126,7 +126,7 @@ loader  = DataLoader(dataset, batch_size=args.batch_size,
 pred_dict = {}
 for video, video_len, _ in dataset.videos:
     pred_dict[video] = (
-        np.zeros((video_len, len(classes) + 1), np.float32),
+        np.zeros((video_len, args.num_classes + 1), np.float32),
         np.zeros(video_len, np.int32))
 
 import torch.nn.functional as F

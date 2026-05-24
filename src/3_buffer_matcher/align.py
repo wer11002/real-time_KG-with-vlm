@@ -104,44 +104,44 @@ CONFIDENCE_THRESHOLD = 0.60
 
 
 def compute_event_confidence(event: dict) -> float:
-    # 1. VLM base confidence (self-reported)
-    base = float(event.get('confidence', 0.5))
+    # 1. VLM base confidence (self-reported, 0-1)
+    base = float(event.get("confidence", 0.5))
 
-    # 2. Field completeness
-    required_fields = ['jersey_number', 'kit_color',
-                       'pitch_zone', 'body_part', 'outcome']
-    unknown = {'unknown', 'null', None, '', 'none'}
+    # 2. Field completeness — how many key fields are filled
+    required = ["jersey", "team_color", "pitch_zone", "body_part", "outcome"]
+    unknown = {"unknown", "null", None, "", "none"}
     filled = sum(
-        1 for f in required_fields
-        if str(event.get(f, '')).lower() not in unknown
+        1 for f in required
+        if str(event.get(f, "")).lower() not in unknown
     )
-    completeness = filled / len(required_fields)
+    completeness = filled / len(required)
 
     # 3. Jersey bonus
-    jersey_val = str(event.get('jersey_number', '')).lower()
+    jersey_val = str(event.get("jersey", "")).lower()
     jersey_bonus = 0.10 if jersey_val not in unknown else -0.05
 
     # 4. Semantic consistency per action type
-    action    = event.get('action_type', '')
-    zone      = str(event.get('pitch_zone', '')).lower()
-    outcome   = str(event.get('outcome', '')).lower()
-    foul_type = str(event.get('foul_type', '')).lower()
+    action  = event.get("action", "")
+    zone    = str(event.get("pitch_zone", "")).lower()
+    outcome = str(event.get("outcome", "")).lower()
+    ftype   = str(event.get("foul_type", "")).lower()
 
-    if action == 'ShotEvent':
-        consistency = 0.0 if ('own_half' in zone or
-                               outcome in unknown) else 1.0
-    elif action == 'GoalEvent':
-        consistency = 1.0 if outcome in {'scored', 'goal'} else 0.0
-    elif action == 'FoulEvent':
-        consistency = 1.0 if foul_type not in unknown else 0.5
+    if action == "Shot":
+        consistency = 0.0 if ("own_half" in zone or outcome in unknown) else 1.0
+    elif action == "Goal":
+        consistency = 1.0 if outcome in {"scored", "goal"} else 0.0
+    elif action == "Foul":
+        consistency = 1.0 if ftype not in unknown else 0.5
     else:
         consistency = 1.0
 
-    score = (0.50 * base +
-             0.30 * completeness +
-             0.10 * jersey_bonus +
-             0.10 * consistency)
-    return min(max(score, 0.0), 1.0)
+    score = (
+        0.50 * base
+        + 0.30 * completeness
+        + 0.10 * jersey_bonus
+        + 0.10 * consistency
+    )
+    return round(min(max(score, 0.0), 1.0), 3)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -389,20 +389,32 @@ def align_buffer(
 
         matched = match_event(v_dict, espn_events, time_tolerance_min, roster_lookup)
 
-        # Confidence gate — replaces ESPN play-by-play gate
-        conf = compute_event_confidence({
-            **v_dict,
-            'jersey_number': v_dict.get('jersey'),
-            'kit_color'    : v_dict.get('team_color'),
-            'action_type'  : v_dict.get('action'),
-        })
-        matched.vlm_confidence_score = conf
-        if conf < CONFIDENCE_THRESHOLD:
-            matched.match_method = 'gated'
-
-        if matched.match_method == "gated":
-            print(f"  [gated] {matched.gametime:<12} {matched.action:<10} "
-                  f"vlm_score={conf:.2f} (below {CONFIDENCE_THRESHOLD})")
+        # VLM confidence gate (replaces ESPN play-by-play gate)
+        if matched.match_method != "gated":
+            conf = compute_event_confidence(v_dict)
+            matched.vlm_confidence_score = conf
+            if conf < CONFIDENCE_THRESHOLD:
+                matched = MatchedEvent(
+                    video_time          = matched.video_time,
+                    action              = matched.action,
+                    confidence          = matched.confidence,
+                    gametime            = matched.gametime,
+                    matched             = False,
+                    match_method        = "gated",
+                    jersey              = matched.jersey,
+                    description         = matched.description,
+                    team_color          = matched.team_color,
+                    pitch_zone          = matched.pitch_zone,
+                    body_part           = matched.body_part,
+                    outcome             = matched.outcome,
+                    foul_type           = matched.foul_type,
+                    team_side           = matched.team_side,
+                    ball_visible        = matched.ball_visible,
+                    vlm_confidence_score= conf,
+                )
+                print(f"  [conf-gated] {matched.gametime:<12} "
+                      f"{matched.action:<10} conf_score={conf:.3f} "
+                      f"(vlm_conf={v_dict.get('confidence', 0):.2f})")
 
         # consume the matched ESPN event to prevent duplicate KG nodes
         if matched.matched and matched.espn_time is not None and espn_scraper:

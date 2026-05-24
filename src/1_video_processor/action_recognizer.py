@@ -42,7 +42,7 @@ VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", 
 CONFIDENCE_THRESHOLDS: Dict[str, float] = {
     "Goal"        : 0.85,
     "Corner"      : 0.75,
-    "Shot"        : 0.80,
+    "Shot"        : 0.65,
     "Foul"        : 0.65,
     "Free_Kick"   : 0.60,
     "Substitution": 0.55,
@@ -352,8 +352,12 @@ GOAL: ball is visibly crossing the goal line inside the net, OR players
 FOUL: physical contact is visible AND the fouled player falls to the ground
   OR the referee raises their arm or shows a card.
 
-CORNER: player is standing at the corner arc flag taking a kick from it.
-  A cross from open play is NOT a corner.
+CORNER: ball is stationary at the corner of the pitch near the
+  corner flag AND a player is about to kick it, OR players from
+  both teams are clustered inside the penalty box while one player
+  stands in the corner area. Broadcast cameras showing the ball
+  going to the corner flag area also counts.
+  A cross from open play or a long ball to the wing is NOT a corner.
 
 FREE_KICK: referee blows whistle and a player takes a stationary kick,
   OR a wall of defenders is visible near a stationary ball,

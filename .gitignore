@@ -3,3 +3,4 @@ sn-spotting/
 data/
 models/*.pth
 logs/
+node_modules/

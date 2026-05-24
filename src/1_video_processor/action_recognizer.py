@@ -437,7 +437,7 @@ def run_inference(frames: List, model, processor, device: str,
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
-            max_new_tokens = 500,
+            max_new_tokens = 1024,
             do_sample      = False,
             temperature    = None,
             top_p          = None,

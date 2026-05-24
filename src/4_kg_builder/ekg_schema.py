@@ -289,6 +289,11 @@ class EKG_Graph:
     def __init__(self):
         self.g = Graph()
         build_tbox(self.g)
+        try:
+            import owlrl
+            owlrl.DeductiveClosure(owlrl.RDFS_Semantics, datatype_axioms=True).expand(self.g)
+        except ImportError:
+            print("[kg] WARNING: owlrl not installed — RDFS inference disabled")
         self._seen_players : set = set()
         self._seen_teams   : set = set()
         self._seen_matches : set = set()
@@ -358,6 +363,51 @@ class EKG_Graph:
         for row in result:
             return int(row[0])
         return 0
+
+    def query_player_history(self, player_id: str) -> list[dict]:
+        """Return all past events for a player, ordered by minute."""
+        q = """
+        PREFIX ekg: <http://soccerekg.org/ontology#>
+        PREFIX data: <http://soccerekg.org/data#>
+        SELECT ?eventType ?minute ?period ?pitchZone ?bodyPart ?outcome WHERE {
+            data:player_%s ekg:PERFORMED ?e .
+            ?e ekg:hasEventType ?eventType ;
+               ekg:hasMinute    ?minute ;
+               ekg:hasPeriod    ?period .
+            OPTIONAL { ?e ekg:hasPitchZone ?pitchZone }
+            OPTIONAL { ?e ekg:hasBodyPart  ?bodyPart  }
+            OPTIONAL { ?e ekg:hasOutcome   ?outcome   }
+        } ORDER BY ?period ?minute
+        """ % player_id
+        rows = []
+        for r in self.g.query(q):
+            rows.append({
+                "type"      : str(r.eventType),
+                "minute"    : float(r.minute),
+                "period"    : int(r.period),
+                "pitch_zone": str(r.pitchZone) if r.pitchZone else None,
+                "body_part" : str(r.bodyPart)  if r.bodyPart  else None,
+                "outcome"   : str(r.outcome)   if r.outcome   else None,
+            })
+        return rows
+
+    def query_match_summary(self, match_id: str) -> dict:
+        """Return shot and goal counts per team for the commentator."""
+        q = """
+        PREFIX ekg: <http://soccerekg.org/ontology#>
+        PREFIX data: <http://soccerekg.org/data#>
+        SELECT ?team ?eventType (COUNT(?e) AS ?n) WHERE {
+            ?e ekg:IN_MATCH data:match_%s ;
+               ekg:hasEventType ?eventType .
+            ?team ekg:INVOLVED_IN ?e .
+        } GROUP BY ?team ?eventType
+        """ % match_id
+        summary = {}
+        for r in self.g.query(q):
+            team  = str(r.team).split("team_")[-1]
+            etype = str(r.eventType)
+            summary.setdefault(team, {})[etype] = int(r.n)
+        return summary
 
     def events_for_player(self, player_id: str) -> list:
         q = "SELECT ?e WHERE { ?p ekg:PERFORMED ?e . }"

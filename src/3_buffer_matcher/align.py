@@ -89,10 +89,59 @@ class MatchedEvent:
     outcome       : Optional[str]   = None   # Shot/Goal result e.g. "saved_low"
     foul_type     : Optional[str]   = None   # Foul sub-type e.g. "tackle"
     team_side     : Optional[str]   = None   # "home" or "away"
-    ball_visible  : Optional[bool]  = None   # quality flag
+    ball_visible         : Optional[bool]  = None   # quality flag
+    vlm_confidence_score : Optional[float] = None   # composite confidence (set by align_buffer)
 
     def to_dict(self):
         return asdict(self)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CONFIDENCE SCORING  (replaces ESPN play-by-play gate)
+# ═══════════════════════════════════════════════════════════════════════════
+
+CONFIDENCE_THRESHOLD = 0.60
+
+
+def compute_event_confidence(event: dict) -> float:
+    # 1. VLM base confidence (self-reported)
+    base = float(event.get('confidence', 0.5))
+
+    # 2. Field completeness
+    required_fields = ['jersey_number', 'kit_color',
+                       'pitch_zone', 'body_part', 'outcome']
+    unknown = {'unknown', 'null', None, '', 'none'}
+    filled = sum(
+        1 for f in required_fields
+        if str(event.get(f, '')).lower() not in unknown
+    )
+    completeness = filled / len(required_fields)
+
+    # 3. Jersey bonus
+    jersey_val = str(event.get('jersey_number', '')).lower()
+    jersey_bonus = 0.10 if jersey_val not in unknown else -0.05
+
+    # 4. Semantic consistency per action type
+    action    = event.get('action_type', '')
+    zone      = str(event.get('pitch_zone', '')).lower()
+    outcome   = str(event.get('outcome', '')).lower()
+    foul_type = str(event.get('foul_type', '')).lower()
+
+    if action == 'ShotEvent':
+        consistency = 0.0 if ('own_half' in zone or
+                               outcome in unknown) else 1.0
+    elif action == 'GoalEvent':
+        consistency = 1.0 if outcome in {'scored', 'goal'} else 0.0
+    elif action == 'FoulEvent':
+        consistency = 1.0 if foul_type not in unknown else 0.5
+    else:
+        consistency = 1.0
+
+    score = (0.50 * base +
+             0.30 * completeness +
+             0.10 * jersey_bonus +
+             0.10 * consistency)
+    return min(max(score, 0.0), 1.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -206,8 +255,9 @@ def match_by_time(
     time_tolerance_min : float = 2.0,
 ) -> MatchedEvent:
     """
-    Match by time + action type (original method).
-    Used as fallback when no jersey is detected.
+    Match by time + action type (enrichment only — no ESPN gate).
+    ESPN play-by-play used only in evaluate.py for post-hoc scoring.
+    Gating is handled by compute_event_confidence() in align_buffer().
     """
     video_minute = video_event["video_time"] / 60.0
     video_action = video_event["action"]
@@ -232,75 +282,7 @@ def match_by_time(
         "ball_visible": video_event.get("ball_visible"),
     }
 
-    # Mandatory ESPN confirmation for Shot (Fix 023):
-    # Only accept a Shot if ESPN has a Shot/Goal within ±1.5 min.
-    # ESPN records all shot attempts (blocked, wide, saved, on target), so
-    # no nearby ESPN shot = almost certainly a clearance, cross, or GK kick.
-    if video_action == "Shot":
-        has_espn_shot = any(
-            abs(e["time"] - video_minute) <= 1.5
-            and e["action"] in {"Shot", "Goal"}
-            for e in espn_events
-        )
-        if not has_espn_shot:
-            return MatchedEvent(
-                video_time   = video_event["video_time"],
-                action       = video_action,
-                confidence   = video_event["confidence"],
-                gametime     = video_event["gametime"],
-                matched      = False,
-                team         = video_event.get("team"),
-                match_method = "gated",
-                jersey       = jersey,
-                description  = description,
-                team_color   = video_event.get("team_color"),
-                **kit,
-            )
-
     if not candidates:
-        # Gate Goals with no ESPN Goal/Shot match at all — a goal with nothing
-        # in ESPN is almost certainly a hallucination (goals are always logged).
-        if video_action == "Goal":
-            return MatchedEvent(
-                video_time   = video_event["video_time"],
-                action       = video_action,
-                confidence   = video_event["confidence"],
-                gametime     = video_event["gametime"],
-                matched      = False,
-                team         = video_event.get("team"),
-                match_method = "gated",
-                jersey       = jersey,
-                description  = description,
-                team_color   = video_event.get("team_color"),
-                **kit,
-            )
-
-        # ESPN confirmation gate (Fix 009):
-        # Shot with no Shot/Goal ESPN match but a nearby different ESPN event
-        # and low confidence → mark gated so caller can skip KG ingestion.
-        if video_action == "Shot" and video_event["confidence"] < 0.75:
-            nearest_diff   = float("inf")
-            nearest_action = None
-            for e in espn_events:
-                diff = abs(e["time"] - video_minute)
-                if diff <= time_tolerance_min and diff < nearest_diff:
-                    nearest_diff   = diff
-                    nearest_action = e.get("action")
-            if nearest_action and nearest_action not in {"Shot", "Goal"}:
-                return MatchedEvent(
-                    video_time   = video_event["video_time"],
-                    action       = video_action,
-                    confidence   = video_event["confidence"],
-                    gametime     = video_event["gametime"],
-                    matched      = False,
-                    team         = video_event.get("team"),
-                    match_method = "gated",
-                    jersey       = jersey,
-                    description  = description,
-                    team_color   = video_event.get("team_color"),
-                    **kit,
-                )
-
         return MatchedEvent(
             video_time   = video_event["video_time"],
             action       = video_action,
@@ -317,39 +299,6 @@ def match_by_time(
 
     candidates.sort(key=lambda x: x[0])
     best_diff, best = candidates[0]
-
-    # ESPN confirmation gate — gates low-confidence Shots and unconfirmed Goals.
-    #
-    # Shot gate: confidence < 0.75 AND (ESPN event is not Shot/Goal, OR match is >1.0 min away)
-    # Goal gate: confidence < 0.85 AND matched ESPN event is Shot, not Goal
-    #   (catches VLM detecting a Goal in the same clip as a real Shot — 0:32 FP pattern)
-    _shot_gate = (
-        video_action == "Shot"
-        and video_event["confidence"] < 0.75
-        and (
-            best.get("action") not in {"Shot", "Goal"}
-            or best_diff > 1.0
-        )
-    )
-    _goal_gate = (
-        video_action == "Goal"
-        and video_event["confidence"] < 0.85
-        and best.get("action") != "Goal"   # ESPN says Shot, not Goal
-    )
-    if _shot_gate or _goal_gate:
-        return MatchedEvent(
-            video_time   = video_event["video_time"],
-            action       = video_action,
-            confidence   = video_event["confidence"],
-            gametime     = video_event["gametime"],
-            matched      = False,
-            team         = video_event.get("team"),
-            match_method = "gated",
-            jersey       = jersey,
-            description  = description,
-            team_color   = video_event.get("team_color"),
-            **kit,
-        )
 
     return MatchedEvent(
         video_time   = video_event["video_time"],
@@ -440,9 +389,20 @@ def align_buffer(
 
         matched = match_event(v_dict, espn_events, time_tolerance_min, roster_lookup)
 
+        # Confidence gate — replaces ESPN play-by-play gate
+        conf = compute_event_confidence({
+            **v_dict,
+            'jersey_number': v_dict.get('jersey'),
+            'kit_color'    : v_dict.get('team_color'),
+            'action_type'  : v_dict.get('action'),
+        })
+        matched.vlm_confidence_score = conf
+        if conf < CONFIDENCE_THRESHOLD:
+            matched.match_method = 'gated'
+
         if matched.match_method == "gated":
             print(f"  [gated] {matched.gametime:<12} {matched.action:<10} "
-                  f"conf={matched.confidence:.2f}")
+                  f"vlm_score={conf:.2f} (below {CONFIDENCE_THRESHOLD})")
 
         # consume the matched ESPN event to prevent duplicate KG nodes
         if matched.matched and matched.espn_time is not None and espn_scraper:

@@ -302,14 +302,15 @@ def run_match(
             print(f"  Buffer: {buffer.size()} events")
 
             if buffer.size() > 0:
-                espn_events  = scraper.get_events_up_to(current_minute + 1)
+                # ESPN play-by-play used only in evaluate.py — not during inference
+                espn_events  = []
                 video_events = buffer.flush()
 
                 matched = align_buffer(
                     video_events, espn_events,
                     time_tolerance_min = 2.0,
                     roster_lookup      = roster,
-                    espn_scraper       = scraper,
+                    espn_scraper       = None,
                 )
 
                 print(summarize(matched))
@@ -318,7 +319,7 @@ def run_match(
                 for m in matched:
                     if m.match_method == "gated":
                         print(f"   GATED    {m.gametime:<12} {m.action:<10} → "
-                              f"conf={m.confidence:.2f} (ESPN contradicts, skipped)")
+                              f"vlm_score={m.vlm_confidence_score:.2f} (low confidence, skipped)")
                         continue
 
                     # cross-batch dedup: skip if same action already ingested within 60s

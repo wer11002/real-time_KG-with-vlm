@@ -232,7 +232,6 @@ def run_match(
     # (e.g. 5:12 shot in batch N and 5:14 shot in batch N+1 — same real event).
     ingested_cache: list = []   # [(action, video_time_sec), ...]
     CROSS_DEDUP_SEC  = 60.0     # same action within 60s = duplicate
-    SHOT_GOAL_GUARD  = 10.0     # Goal within 10s of a Shot = double-detection
 
     video_duration = get_video_duration(video_path)
     total_clips    = int((video_duration - clip_duration) / clip_step) + 1
@@ -267,8 +266,20 @@ def run_match(
         t_extract = time.time() - t_e0
 
         t_d0       = time.time()
+        # buffer events (pre-flush)
         recent   = buffer.get_recent(start_sec, minutes=2.0)
-        recent_d = [{"action": e.action, "gametime": e.gametime} for e in recent]
+        recent_d = [{"action": e.action, "gametime": e.gametime}
+                    for e in recent]
+
+        # also include recently ingested events (post-flush, last 2 min)
+        cutoff_sec = start_sec - 120.0
+        for act, t in ingested_cache:
+            if t >= cutoff_sec:
+                gt    = seconds_to_gametime(t, halftime_sec)
+                entry = {"action": act, "gametime": gt}
+                if entry not in recent_d:
+                    recent_d.append(entry)
+
         detections = detect_actions(str(clip_path), clip_start_sec=start_sec,
                                     halftime_sec=halftime_sec,
                                     recent_events=recent_d if recent_d else None)
@@ -331,20 +342,6 @@ def run_match(
                         print(f"   XDEDUP   {m.gametime:<12} {m.action:<10} → "
                               f"already ingested within 60s, skipped")
                         continue
-
-                    # Shot→Goal guard: a Goal within 10s of an ingested Shot is
-                    # a double-detection of the same event (VLM saw Shot + Goal
-                    # in the same clip). Discard the Goal; keep the Shot.
-                    if m.action == "Goal":
-                        _near_shot = any(
-                            act == "Shot"
-                            and abs(t - m.video_time) <= SHOT_GOAL_GUARD
-                            for act, t in ingested_cache
-                        )
-                        if _near_shot:
-                            print(f"   GOALGUARD {m.gametime:<12} Goal → "
-                                  f"Shot already ingested within 10s, skipped")
-                            continue
 
                     ingested_cache.append((m.action, m.video_time))
 

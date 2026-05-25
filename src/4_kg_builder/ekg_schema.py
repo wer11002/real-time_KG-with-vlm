@@ -46,6 +46,9 @@ ORG     = Namespace("http://www.w3.org/ns/org#")
 TIME    = Namespace("http://www.w3.org/2006/time#")
 GEO     = Namespace("http://www.opengis.net/ont/geosparql#")
 DCTERMS = Namespace("http://purl.org/dc/terms/")
+SKOS    = Namespace("http://www.w3.org/2004/02/skos/core#")
+EVENT   = Namespace("http://purl.org/NET/c4dm/event.owl#")
+WGS84   = Namespace("http://www.w3.org/2003/01/geo/wgs84_pos#")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -73,6 +76,9 @@ CLASSES = {
     # card subtypes
     "YellowCardEvent"    : EKG.YellowCardEvent,
     "RedCardEvent"       : EKG.RedCardEvent,
+    # spatial / structural
+    "Venue"              : EKG.Venue,
+    "League"             : EKG.League,
 }
 
 # class hierarchy — (child, parent)
@@ -90,6 +96,8 @@ CLASS_HIERARCHY = [
     (EKG.PassEvent,         EKG.ActionEvent),
     (EKG.YellowCardEvent,   EKG.CardEvent),
     (EKG.RedCardEvent,      EKG.CardEvent),
+    (EKG.Venue,             WGS84.SpatialThing),
+    (EKG.League,            SKOS.Concept),
 ]
 
 # map event-type string → OWL class URI (used by kg_builder)
@@ -203,6 +211,9 @@ def build_tbox(g: Graph):
     g.bind("time",    TIME)
     g.bind("geo",     GEO)
     g.bind("dcterms", DCTERMS)
+    g.bind("skos",  SKOS)
+    g.bind("event", EVENT)
+    g.bind("wgs84", WGS84)
 
     # OWL Ontology declaration (T02 fix)
     g.add((EKG[""], RDF.type,        OWL.Ontology))
@@ -258,8 +269,21 @@ def build_tbox(g: Graph):
     # ── Ontology alignment — classes ───────────────────────────────────────
     g.add((EKG.Player, RDFS.subClassOf, FOAF.Person))
     g.add((EKG.Team,   RDFS.subClassOf, SCHEMA.SportsTeam))
+    g.add((EKG.Team,   RDFS.subClassOf, FOAF.Agent))
+    g.add((EKG.Team,   RDFS.subClassOf, FOAF.Group))
     g.add((EKG.Match,  RDFS.subClassOf, SCHEMA.SportsEvent))
     g.add((EKG.Event,  RDFS.subClassOf, PROV.Activity))
+    g.add((EKG.Event,  RDFS.subClassOf, EVENT.Event))
+    g.add((EKG.Event,  RDFS.subClassOf, SCHEMA.Action))
+
+    g.add((EKG.ActionEvent,       RDFS.subClassOf, SCHEMA.Action))
+    g.add((EKG.ShotEvent,         RDFS.subClassOf, SCHEMA.Action))
+    g.add((EKG.GoalEvent,         RDFS.subClassOf, SCHEMA.Action))
+    g.add((EKG.FoulEvent,         RDFS.subClassOf, SCHEMA.Action))
+    g.add((EKG.CornerEvent,       RDFS.subClassOf, SCHEMA.Action))
+    g.add((EKG.FreeKickEvent,     RDFS.subClassOf, SCHEMA.Action))
+    g.add((EKG.SubstitutionEvent, RDFS.subClassOf, SCHEMA.Action))
+    g.add((EKG.OffsideEvent,      RDFS.subClassOf, SCHEMA.Action))
 
     # ── Ontology alignment — object properties ─────────────────────────────
     # rdfs:subPropertyOf (not owl:equivalentProperty) — our properties are
@@ -271,10 +295,18 @@ def build_tbox(g: Graph):
     g.add((EKG.PLAYS_FOR,       RDFS.subPropertyOf, ORG.memberOf))
     g.add((EKG.hasHomeTeam,     RDFS.subPropertyOf, SCHEMA.homeTeam))
     g.add((EKG.hasAwayTeam,     RDFS.subPropertyOf, SCHEMA.awayTeam))
+    g.add((EKG.IN_MATCH,        RDFS.subPropertyOf, SCHEMA.superEvent))
+    g.add((EKG.hasVenue,        RDFS.subPropertyOf, EVENT.place))
+    g.add((EKG.hasVenue,        RDFS.domain,        EKG.Match))
+    g.add((EKG.hasVenue,        RDFS.range,         EKG.Venue))
 
     # ── Ontology alignment — datatype properties ───────────────────────────
     g.add((EKG.hasDate,        RDFS.subPropertyOf, DCTERMS.date))
     g.add((EKG.hasDescription, RDFS.subPropertyOf, DCTERMS.description))
+    g.add((EKG.hasTime,         RDFS.subPropertyOf, SCHEMA.startTime))
+    g.add((EKG.hasOutcome,      RDFS.subPropertyOf, SCHEMA.result))
+    g.add((EKG.hasEventType,    RDFS.subPropertyOf, DCTERMS.type))
+    g.add((EKG.hasJerseyNumber, RDFS.subPropertyOf, SCHEMA.identifier))
 
     return g
 

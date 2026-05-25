@@ -37,7 +37,25 @@ from rdflib import Literal, RDF, RDFS, XSD
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ekg_schema import EKG_Graph, EKG, INST, EVENT_TYPE_CLASS
+from ekg_schema import EKG_Graph, EKG, INST, EVENT_TYPE_CLASS, FOAF, SKOS, EVENT, WGS84, GEO
+
+
+PITCH_ZONE_COORDS = {
+    "penalty_area"   : (95.0, 34.0),
+    "six_yard_box"   : (103.0, 34.0),
+    "edge_of_box"    : (88.0, 34.0),
+    "box"            : (95.0, 34.0),
+    "left_wing"      : (75.0, 5.0),
+    "right_wing"     : (75.0, 63.0),
+    "left_flank"     : (70.0, 8.0),
+    "right_flank"    : (70.0, 60.0),
+    "centre_circle"  : (52.5, 34.0),
+    "midfield"       : (52.5, 34.0),
+    "own_half"       : (26.0, 34.0),
+    "defensive_half" : (26.0, 34.0),
+    "corner"         : (105.0, 5.0),
+    "centre"         : (52.5, 34.0),
+}
 
 
 # ── Paths ──────────────────────────────────────────────────────────────────
@@ -122,6 +140,9 @@ def get_or_create_match(match_name: str, ekg: EKG_Graph) -> Tuple[str, str]:
     ekg.g.add((match_uri, RDF.type,    EKG.Match))
     ekg.g.add((match_uri, RDFS.label,  Literal(match_name)))
     ekg.g.add((match_uri, EKG.hasDate, Literal(date)))
+    venue_id  = get_or_create_venue("Ewood Park", 53.7286, -2.4895, ekg)
+    venue_uri = INST[f"venue_{venue_id}"]
+    ekg.g.add((match_uri, EVENT.place, venue_uri))
 
     home, away = _extract_teams(match_name)
     if home:
@@ -145,9 +166,25 @@ def get_or_create_team(team_name: str, ekg: EKG_Graph) -> str:
     team_uri = ekg.team_uri(tid)
     ekg.g.add((team_uri, RDF.type,   EKG.Team))
     ekg.g.add((team_uri, RDFS.label, Literal(team_name)))
+    ekg.g.add((team_uri, FOAF.name,  Literal(team_name)))
 
     ekg._seen_teams.add(tid)
     return tid
+
+
+def get_or_create_venue(venue_name: str, lat: float, long_: float,
+                         ekg: EKG_Graph) -> str:
+    vid = normalize_id(venue_name)
+    if vid not in getattr(ekg, "_seen_venues", set()):
+        venue_uri = INST[f"venue_{vid}"]
+        ekg.g.add((venue_uri, RDF.type,       EKG.Venue))
+        ekg.g.add((venue_uri, RDFS.label,     Literal(venue_name)))
+        ekg.g.add((venue_uri, WGS84.lat,      Literal(lat,   datatype=XSD.decimal)))
+        ekg.g.add((venue_uri, WGS84["long"],  Literal(long_, datatype=XSD.decimal)))
+        if not hasattr(ekg, "_seen_venues"):
+            ekg._seen_venues = set()
+        ekg._seen_venues.add(vid)
+    return vid
 
 
 def get_or_create_player(
@@ -168,6 +205,7 @@ def get_or_create_player(
         player_uri = ekg.player_uri(pid)
         ekg.g.add((player_uri, RDF.type,   EKG.Player))
         ekg.g.add((player_uri, RDFS.label, Literal(player_name)))
+        ekg.g.add((player_uri, FOAF.name,  Literal(player_name)))
 
         if team_id:
             team_uri = ekg.team_uri(team_id)
@@ -219,6 +257,7 @@ def prepopulate_roster(
                 player_uri = ekg.player_uri(pid)
                 ekg.g.add((player_uri, RDF.type,            EKG.Player))
                 ekg.g.add((player_uri, RDFS.label,          Literal(player_name)))
+                ekg.g.add((player_uri, FOAF.name,           Literal(player_name)))
                 # hasJerseyNumber — permanent squad number on the Player node
                 ekg.g.add((player_uri, EKG.hasJerseyNumber, Literal(str(jersey))))
 
@@ -230,6 +269,7 @@ def prepopulate_roster(
                 ekg.g.add((edge_uri, RDF.predicate, EKG.PLAYS_FOR))
                 ekg.g.add((edge_uri, RDF.object,    team_uri))
                 ekg.g.add((edge_uri, EKG.validFrom, Literal(match_date, datatype=XSD.date)))
+                ekg.g.add((team_uri, FOAF.member,   player_uri))
 
                 ekg._seen_players.add(pid)
                 total += 1
@@ -324,7 +364,16 @@ def _create_event_node(
     if kit_pattern:
         ekg.g.add((event_uri, EKG.hasKitPattern,  Literal(str(kit_pattern))))
     if pitch_zone:
-        ekg.g.add((event_uri, EKG.hasPitchZone,   Literal(str(pitch_zone))))
+        zone_str = str(pitch_zone).lower().strip()
+        ekg.g.add((event_uri, EKG.hasPitchZone, Literal(zone_str)))
+        coords = PITCH_ZONE_COORDS.get(zone_str)
+        if coords:
+            geom_uri = INST[f"geom_{event_id}"]
+            ekg.g.add((event_uri, GEO.hasGeometry, geom_uri))
+            ekg.g.add((geom_uri,  RDF.type,         GEO.Point))
+            ekg.g.add((geom_uri,  GEO.asWKT,
+                Literal(f"POINT({coords[0]} {coords[1]})",
+                        datatype=GEO.wktLiteral)))
     if body_part:
         ekg.g.add((event_uri, EKG.hasBodyPart,    Literal(str(body_part))))
     if outcome:

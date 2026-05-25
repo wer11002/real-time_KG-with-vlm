@@ -129,7 +129,12 @@ def compute_event_confidence(event: dict) -> float:
     if action == "Shot":
         consistency = 0.0 if ("own_half" in zone or outcome in unknown) else 1.0
     elif action == "Goal":
-        consistency = 1.0 if outcome in {"scored", "goal"} else 0.0
+        if outcome in {"scored", "goal"}:
+            consistency = 1.0
+        elif str(outcome).lower() not in unknown:
+            consistency = 0.5   # outcome present but ball not yet across line
+        else:
+            consistency = 0.0
     elif action == "Foul":
         consistency = 1.0 if ftype not in unknown else 0.5
     else:

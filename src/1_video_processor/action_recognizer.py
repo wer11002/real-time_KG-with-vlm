@@ -40,7 +40,7 @@ VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", 
 # Per-action minimum confidence — higher bar for rare/high-stakes events.
 # Actions not listed fall back to the min_confidence parameter (default 0.5).
 CONFIDENCE_THRESHOLDS: Dict[str, float] = {
-    "Goal"        : 0.85,
+    "Goal"        : 0.75,
     "Corner"      : 0.75,
     "Shot"        : 0.65,
     "Foul"        : 0.65,

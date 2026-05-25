@@ -289,11 +289,6 @@ class EKG_Graph:
     def __init__(self):
         self.g = Graph()
         build_tbox(self.g)
-        try:
-            import owlrl
-            owlrl.DeductiveClosure(owlrl.RDFS_Semantics, datatype_axioms=True).expand(self.g)
-        except ImportError:
-            print("[kg] WARNING: owlrl not installed — RDFS inference disabled")
         self._seen_players : set = set()
         self._seen_teams   : set = set()
         self._seen_matches : set = set()
@@ -441,6 +436,11 @@ class EKG_Graph:
     def save(self, out_path: Path, format: str = "turtle"):
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            import owlrl
+            owlrl.DeductiveClosure(owlrl.RDFS_Semantics, datatype_axioms=True).expand(self.g)
+        except ImportError:
+            pass
         self.g.serialize(destination=str(out_path), format=format)
 
     def load(self, path: str):

@@ -346,8 +346,13 @@ Strict per-action criteria — ALL conditions must be visible:
 SHOT: foot or head makes CONTACT with the ball AND the ball is moving
   toward goal in the same or adjacent frame. Stance or wind-up is NOT a shot.
 
-GOAL: ball is visibly crossing the goal line inside the net, OR players
-  are celebrating with arms raised AND the scoreboard changes in a later frame.
+GOAL: any of these are visible — ball crossing the goal line OR ball seen
+  inside the net after entering, OR attacking players celebrating with arms
+  raised and running toward each other while defenders look dejected or stand
+  still, OR the goalkeeper retrieves the ball from inside the net, OR the
+  referee points to the centre circle. A goal is distinct from a Shot —
+  report Goal only when you are confident the ball has already entered the
+  net, not just when a shot is being attempted.
 
 FOUL: physical contact is visible AND the fouled player falls to the ground
   OR the referee raises their arm or shows a card.

@@ -298,8 +298,15 @@ def extract_frames(clip_path: str, num_frames: int = NUM_FRAMES):
     fps          = cap.get(cv2.CAP_PROP_FPS) or 25
     duration_sec = total_frames / fps
 
-    indices = (np.linspace(0, total_frames - 1, num_frames, dtype=int).tolist()
-               if total_frames >= num_frames else list(range(total_frames)))
+    if total_frames >= num_frames:
+        # Bias sampling toward later frames — goal moments (ball crossing
+        # line, celebration) appear in the final seconds of a clip.
+        # t**0.7 maps uniform [0,1] so that ~60% of frames come from
+        # the last 40% of the clip. Other events are unaffected.
+        t = np.linspace(0, 1, num_frames) ** 0.7
+        indices = (t * (total_frames - 1)).astype(int).tolist()
+    else:
+        indices = list(range(total_frames))
 
     frames, frame_times = [], []
     for idx in indices:
@@ -328,7 +335,8 @@ you have unmistakable visual proof of a specific action.
 A missed detection is always better than a false one.
 Always respond in valid JSON format only — no other text outside the JSON."""
 
-ACTION_PROMPT = """These 32 frames are sampled evenly from a 60-second football clip
+ACTION_PROMPT = """These 32 frames are sampled from a 60-second football clip
+(more frames from the second half of the clip where key moments resolve)
 (one frame roughly every 2 seconds).
 
 IMPORTANT: Most 60-second clips contain NO scorable action — just passing,

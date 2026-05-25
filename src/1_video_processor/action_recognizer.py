@@ -49,6 +49,19 @@ CONFIDENCE_THRESHOLDS: Dict[str, float] = {
     "Offside"     : 0.50,
 }
 
+GOAL_KEYWORDS = {"back of the net", "into the net", "hits the net",
+                 "goal", "scores", "scored", "equalis", "1-0", "1-1",
+                 "2-0", "2-1", "2-2", "opens the scoring"}
+
+GOAL_VERIFY_PROMPT = """These frames are from a 60-second football clip.
+Look at EVERY frame carefully.
+Did the ball visibly cross the goal line and enter the net at any point in these frames?
+Also check: are players celebrating with arms raised? Is the goalkeeper retrieving the ball from inside the net?
+
+Respond ONLY with this exact JSON:
+{"goal_scored": true or false, "confidence": 0.0 to 1.0, "evidence": "one sentence describing what you see"}"""
+
+
 # default color map — used as fallback if ESPN colors not loaded
 # overridden at runtime by build_color_map()
 _TEAM_COLOR_MAP: Dict[str, Optional[str]] = {}
@@ -323,6 +336,46 @@ def extract_frames(clip_path: str, num_frames: int = NUM_FRAMES):
         frame_times.append(frame_times[-1])
 
     return frames, duration_sec, frame_times
+
+
+def verify_goal(frames: list, model, processor, device) -> dict:
+    """
+    Focused second-pass check: did a goal occur in these frames?
+    Returns {"goal_scored": bool, "confidence": float, "evidence": str}
+    """
+    try:
+        content = []
+        for frame in frames:
+            import PIL.Image
+            if isinstance(frame, np.ndarray):
+                pil_img = PIL.Image.fromarray(frame)
+            else:
+                pil_img = frame
+            content.append({"type": "image", "image": pil_img})
+        content.append({"type": "text", "text": GOAL_VERIFY_PROMPT})
+
+        from qwen_vl_utils import process_vision_info
+        messages = [{"role": "user", "content": content}]
+        text = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True)
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = processor(
+            text=[text], images=image_inputs, videos=video_inputs,
+            padding=True, return_tensors="pt").to(device)
+
+        import torch
+        with torch.no_grad():
+            output_ids = model.generate(**inputs, max_new_tokens=256)
+        generated = output_ids[0][inputs.input_ids.shape[1]:]
+        response = processor.decode(generated, skip_special_tokens=True)
+
+        import re, json
+        match = re.search(r'\{[^}]+\}', response, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+    except Exception as e:
+        print(f"  [goal_verify] error: {e}")
+    return {"goal_scored": False, "confidence": 0.0, "evidence": ""}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -609,6 +662,33 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
             "confidence"  : float(raw.get("confidence", 0.5)),
             "gametime"    : _seconds_to_gametime(video_time, halftime_sec),
         })
+
+    # Way 4: two-pass goal verification
+    # If a high-confidence Shot has goal keywords in description,
+    # re-run a focused goal check on the same frames.
+    has_goal = any(d.get("action") == "Goal" for d in detections)
+    if not has_goal:
+        for d in detections:
+            if d.get("action") != "Shot":
+                continue
+            conf = float(d.get("confidence", 0.0))
+            desc = str(d.get("description", "")).lower()
+            outcome = str(d.get("outcome", "")).lower()
+            has_keyword = any(kw in desc for kw in GOAL_KEYWORDS)
+            has_outcome = outcome in {"scored", "goal"}
+            if conf >= 0.70 and (has_keyword or has_outcome):
+                print(f"  [goal_verify] Shot at conf={conf:.2f} — running goal check")
+                result = verify_goal(frames, model, processor, device)
+                if result.get("goal_scored") and result.get("confidence", 0) >= 0.60:
+                    print(f"  [goal_verify] GOAL confirmed: {result.get('evidence')}")
+                    goal_det = dict(d)
+                    goal_det["action"]     = "Goal"
+                    goal_det["confidence"] = result["confidence"]
+                    goal_det["outcome"]    = "scored"
+                    detections.append(goal_det)
+                    break  # only one goal per clip
+                else:
+                    print(f"  [goal_verify] not a goal: {result.get('evidence')}")
 
     return detections
 

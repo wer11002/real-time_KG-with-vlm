@@ -127,24 +127,81 @@ def instances_of(g, cls: URIRef) -> list[URIRef]:
             if isinstance(s, URIRef) and str(s).startswith(INST_NS)]
 
 
-# ── hierarchy tree (ASCII) ────────────────────────────────────────────────────
+# ── inline T-Box hierarchy graph ─────────────────────────────────────────────
 
-def render_tree(g, cls: URIRef) -> str:
-    anc  = list(reversed(ancestors(g, cls)))   # root → ... → parent
-    desc = descendants(g, cls)
+def build_hierarchy_graph(g, cls: URIRef, height: int = 320) -> str | None:
+    """Small pyvis flow: ancestors → cls (highlighted) → descendants."""
+    try:
+        from pyvis.network import Network
+    except ImportError:
+        return None
 
-    lines = []
-    for i, a in enumerate(anc):
-        lines.append("  " * i + ("└─ " if i else "") + ns_prefix(a))
+    anc_chain = list(reversed(ancestors(g, cls)))   # root → ... → parent
+    desc_list = descendants(g, cls)                 # [(cls, depth), ...]
 
-    root_indent = len(anc)
-    lines.append("  " * root_indent + ("└─ " if anc else "") +
-                 f"► {ns_prefix(cls)}")
+    net = Network(
+        height=f"{height}px", width="100%",
+        bgcolor="#ffffff", font_color="#222222",
+        directed=True,
+    )
+    net.set_options("""
+    {
+      "layout": { "hierarchical": {
+          "enabled": true,
+          "direction": "UD",
+          "sortMethod": "directed",
+          "nodeSpacing": 120,
+          "levelSeparation": 70
+      }},
+      "physics": { "enabled": false },
+      "edges": { "smooth": { "type": "cubicBezier" } }
+    }
+    """)
 
-    for d, depth in desc:
-        lines.append("  " * (root_indent + 1 + depth) + "└─ " + ns_prefix(d))
+    added = set()
 
-    return "\n".join(lines)
+    def add_n(uri, label, color, size=18):
+        uid = str(uri)
+        if uid in added:
+            return
+        added.add(uid)
+        net.add_node(uid, label=label, color=color, size=size,
+                     title=ns_prefix(uri), font={"size": 12, "bold": uid == str(cls)})
+
+    def add_e(parent_uri, child_uri):
+        pu, cu = str(parent_uri), str(child_uri)
+        if pu in added and cu in added:
+            net.add_edge(pu, cu, label="subClassOf",
+                         color="#AAAAAA", arrows="to", width=1.5,
+                         font={"size": 9, "color": "#888888"})
+
+    # ancestors (light blue, smallest)
+    for a in anc_chain:
+        add_n(a, ns_prefix(a), "#7FB3D3", size=16)
+
+    # selected class (orange, largest)
+    add_n(cls, ns_prefix(cls), "#FF6B35", size=24)
+
+    # edges: ancestors chain
+    chain = anc_chain + [cls]
+    for i in range(len(chain) - 1):
+        add_e(chain[i], chain[i + 1])
+
+    # descendants (light green, small)
+    for d, _ in desc_list:
+        add_n(d, ns_prefix(d), "#82C9A0", size=14)
+
+    # edges: each descendant → its direct parent in the set
+    all_nodes_set = set(anc_chain) | {cls} | {d for d, _ in desc_list}
+    for d, _ in desc_list:
+        for par in g.objects(d, RDFS.subClassOf):
+            if isinstance(par, URIRef) and par in all_nodes_set:
+                add_e(par, d)
+                break
+
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
+        net.save_graph(f.name)
+        return Path(f.name).read_text()
 
 
 # ── page ──────────────────────────────────────────────────────────────────────
@@ -246,14 +303,19 @@ with tab_search:
                         left, right = st.columns([1, 1])
 
                         with left:
-                            st.markdown("##### Hierarchy")
-                            st.code(render_tree(g, cls), language=None)
+                            st.markdown("##### T-Box Hierarchy")
+                            h_html = build_hierarchy_graph(g, cls, height=320)
+                            if h_html:
+                                components.html(h_html, height=330, scrolling=False)
+                            else:
+                                st.caption("pyvis not installed — run `pip install pyvis`")
 
                             anc_list = ancestors(g, cls)
                             depth    = len(anc_list)
                             st.caption(
-                                f"Depth: **{depth}** "
-                                f"({'  ›  '.join(ns_prefix(a) for a in reversed(anc_list))} ›  {ns_prefix(cls)})"
+                                f"Depth: **{depth}** — "
+                                + "  ›  ".join(ns_prefix(a) for a in reversed(anc_list))
+                                + f"  ›  **{ns_prefix(cls)}**"
                                 if anc_list else f"Root class (depth 0)"
                             )
 

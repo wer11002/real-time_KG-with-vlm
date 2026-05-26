@@ -178,12 +178,20 @@ c4.metric("Instances",  total_inst)
 
 st.divider()
 
+# session state for node navigation
+if "node" not in st.session_state:
+    st.session_state.node = None
+
+def goto(uri: str):
+    st.session_state.node = uri
+
 # tabs
-tab_search, tab_schema, tab_graph, tab_instances = st.tabs([
+tab_search, tab_schema, tab_graph, tab_instances, tab_node = st.tabs([
     "🔍 Search",
     "📋 Full Schema",
     "🕸️ Graph",
     "🗂️ Instances",
+    "🔎 Node",
 ])
 
 
@@ -351,20 +359,14 @@ with tab_instances:
             continue
         with st.expander(f"**{short(cls)}** — {len(inst)} instances"):
             for i in inst[:30]:
-                # collect all triples for this instance
-                triples = list(g.predicate_objects(i))
-                label_val = next(
-                    (str(o) for _, p, o in [(i, pr, obj) for pr, obj in triples]
-                     if p in (RDFS.label, FOAF.name)), None
-                )
-                header = label_val or short(i)
-                with st.container():
-                    st.markdown(f"**{header}**  `{short(i)}`")
-                    for pred, obj in sorted(triples, key=lambda x: short(x[0])):
-                        if pred == RDF.type:
-                            continue
-                        obj_str = short(obj) if isinstance(obj, URIRef) else str(obj)
-                        st.caption(f"  {ns_prefix(pred)} = {obj_str}")
+                label_val = next((str(o) for o in g.objects(i, RDFS.label)), None) or \
+                            next((str(o) for o in g.objects(i, FOAF.name)), None)
+                display = label_val or short(i)
+                col_lbl, col_btn = st.columns([5, 1])
+                col_lbl.markdown(f"**{display}**  `{short(i)}`")
+                if col_btn.button("Inspect →", key=f"ins_{str(i)}"):
+                    goto(str(i))
+                    st.rerun()
             if len(inst) > 30:
                 st.caption(f"…{len(inst) - 30} more not shown")
 
@@ -555,3 +557,194 @@ with tab_graph:
         st.error("pyvis not installed. Run: `pip install pyvis`")
     else:
         components.html(html, height=720, scrolling=False)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 5 — NODE INSPECTOR
+# ═══════════════════════════════════════════════════════════════════════════
+
+def find_path_to_match(g, start_uri: str) -> list:
+    """BFS from start_uri outward; return shortest edge path to a Match node."""
+    from collections import deque
+    queue   = deque([(start_uri, [])])
+    visited = {start_uri}
+    match_uris = {str(u) for u in g.subjects(RDF.type, EKG.Match)}
+
+    while queue:
+        cur, path = queue.popleft()
+        if cur in match_uris:
+            return path
+
+        cur_uri = URIRef(cur)
+        # outgoing edges
+        for pred, obj in g.predicate_objects(cur_uri):
+            if not isinstance(obj, URIRef):
+                continue
+            obj_s = str(obj)
+            if obj_s not in visited:
+                visited.add(obj_s)
+                queue.append((obj_s, path + [(cur, f"→ {short(pred)} →", obj_s)]))
+        # incoming edges
+        for subj, pred in g.subject_predicates(cur_uri):
+            if not isinstance(subj, URIRef):
+                continue
+            subj_s = str(subj)
+            if subj_s not in visited:
+                visited.add(subj_s)
+                queue.append((subj_s, path + [(cur, f"← {short(pred)} ←", subj_s)]))
+    return []
+
+
+def build_neighborhood_graph(g, center_uri: str) -> str:
+    """2-hop pyvis graph centered on one node."""
+    try:
+        from pyvis.network import Network
+    except ImportError:
+        return None
+
+    net = Network(height="500px", width="100%", bgcolor="#ffffff",
+                  font_color="#222222", directed=True)
+    net.barnes_hut(gravity=-8000, central_gravity=0.5,
+                   spring_length=100, spring_strength=0.05)
+
+    added = set()
+
+    def add_n(uri, label, color, size, title):
+        if str(uri) in added:
+            return
+        added.add(str(uri))
+        net.add_node(str(uri), label=label, color=color, size=size,
+                     title=title, font={"size": 11})
+
+    def add_e(s, p_label, o, color="#aaaaaa"):
+        key = (str(s), str(o), p_label)
+        if str(s) in added and str(o) in added:
+            net.add_edge(str(s), str(o), label=p_label, color=color,
+                         font={"size": 9, "color": "#555"}, arrows="to", width=1.5)
+
+    center = URIRef(center_uri)
+    center_label = next((str(o) for o in g.objects(center, RDFS.label)), short(center_uri))
+    add_n(center, center_label, "#FF6B35", 30, f"SELECTED: {center_uri}")
+
+    edge_colors = {
+        "IN_MATCH": "#4A90D9", "IS_PERFORMED_BY": "#2ECC71",
+        "PERFORMED": "#2ECC71", "INVOLVED_IN": "#E74C3C",
+        "PLAYS_FOR": "#8E44AD", "PRECEDED_BY": "#999",
+        "hasHomeTeam": "#E74C3C", "hasAwayTeam": "#E74C3C",
+    }
+
+    # outgoing
+    for pred, obj in g.predicate_objects(center):
+        if not isinstance(obj, URIRef) or pred == RDF.type:
+            continue
+        lbl = next((str(o) for o in g.objects(obj, RDFS.label)), short(str(obj)))
+        add_n(obj, lbl, node_color(g, obj), node_size(g, obj), str(obj))
+        add_e(center, short(pred), obj, edge_colors.get(short(pred), "#AAAAAA"))
+
+    # incoming
+    for subj, pred in g.subject_predicates(center):
+        if not isinstance(subj, URIRef):
+            continue
+        lbl = next((str(o) for o in g.objects(subj, RDFS.label)), short(str(subj)))
+        add_n(subj, lbl, node_color(g, subj), node_size(g, subj), str(subj))
+        add_e(subj, short(pred), center, edge_colors.get(short(pred), "#AAAAAA"))
+
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
+        net.save_graph(f.name)
+        return Path(f.name).read_text()
+
+
+with tab_node:
+    # ── node selector ────────────────────────────────────────────────────────
+    all_inst_uris = sorted(
+        [str(s) for s in g.subjects(RDF.type, None)
+         if isinstance(s, URIRef) and str(s).startswith(INST_NS)],
+        key=lambda u: short(u)
+    )
+
+    default_idx = 0
+    if st.session_state.node and st.session_state.node in all_inst_uris:
+        default_idx = all_inst_uris.index(st.session_state.node)
+
+    selected = st.selectbox(
+        "Select or search a node",
+        options=all_inst_uris,
+        index=default_idx,
+        format_func=lambda u: f"{short(u)}",
+    )
+    if selected:
+        st.session_state.node = selected
+
+    if not selected:
+        st.caption("Select a node above or click **Inspect →** in the Instances tab.")
+        st.stop()
+
+    # ── node header ──────────────────────────────────────────────────────────
+    uri = URIRef(selected)
+    label = next((str(o) for o in g.objects(uri, RDFS.label)), None) or \
+            next((str(o) for o in g.objects(uri, FOAF.name)), None) or short(selected)
+    types = [short(t) for t in g.objects(uri, RDF.type) if isinstance(t, URIRef)]
+
+    st.markdown(f"## {label}")
+    st.caption(f"`{selected}`")
+    st.markdown("  ".join(f"`{t}`" for t in types))
+    st.divider()
+
+    # ── path from Match ──────────────────────────────────────────────────────
+    path = find_path_to_match(g, selected)
+    if path:
+        st.markdown("#### 📍 Path from Match")
+        crumbs = []
+        for (src, rel, dst) in path:
+            src_lbl = next((str(o) for o in g.objects(URIRef(src), RDFS.label)), short(src))
+            crumbs.append(f"**{src_lbl}** `{rel}`")
+        dst_lbl = next((str(o) for o in g.objects(URIRef(path[-1][2]), RDFS.label)),
+                       short(path[-1][2]))
+        crumbs.append(f"**{dst_lbl}**")
+        st.markdown("  ›  ".join(crumbs))
+        st.divider()
+
+    # ── properties (with clickable URI values) ───────────────────────────────
+    st.markdown("#### 🔑 Properties")
+
+    # group by predicate
+    from collections import defaultdict as _dd
+    pred_map = _dd(list)
+    for pred, obj in g.predicate_objects(uri):
+        if pred != RDF.type:
+            pred_map[pred].append(obj)
+
+    for pred in sorted(pred_map.keys(), key=lambda p: short(p)):
+        pname = ns_prefix(pred)
+        values = pred_map[pred]
+
+        with st.expander(f"**`{pname}`**  ({len(values)} value{'s' if len(values)>1 else ''})",
+                         expanded=True):
+            for obj in values:
+                if isinstance(obj, URIRef) and str(obj).startswith(INST_NS):
+                    # clickable internal node
+                    obj_label = next((str(o) for o in g.objects(obj, RDFS.label)), None) or \
+                                next((str(o) for o in g.objects(obj, FOAF.name)), None) or short(str(obj))
+                    obj_types  = [short(t) for t in g.objects(obj, RDF.type) if isinstance(t, URIRef)]
+                    type_badge = f"  `{'  ·  '.join(obj_types[:2])}`" if obj_types else ""
+                    col_val, col_nav = st.columns([6, 1])
+                    col_val.markdown(f"🔗 **{obj_label}**{type_badge}  `{short(str(obj))}`")
+                    if col_nav.button("→", key=f"nav_{pred}_{obj}", help=f"Inspect {short(str(obj))}"):
+                        goto(str(obj))
+                        st.rerun()
+                elif isinstance(obj, URIRef):
+                    # external URI (foaf, schema, etc.)
+                    st.markdown(f"🌐 `{ns_prefix(obj)}`")
+                else:
+                    # literal value
+                    st.markdown(f"📝 `{str(obj)}`")
+
+    st.divider()
+
+    # ── neighborhood graph ───────────────────────────────────────────────────
+    st.markdown("#### 🕸️ Neighborhood Graph")
+    n_html = build_neighborhood_graph(g, selected)
+    if n_html is None:
+        st.error("pyvis not installed — run `pip install pyvis`")
+    else:
+        components.html(n_html, height=520, scrolling=False)

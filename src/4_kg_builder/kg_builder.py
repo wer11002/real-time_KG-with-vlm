@@ -41,6 +41,13 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
+_SCHEMA_FILE = _THIS_DIR / "ekg_schema.py"
+if not _SCHEMA_FILE.exists():
+    raise FileNotFoundError(
+        f"ekg_schema.py missing from {_THIS_DIR}\n"
+        f"Fix: git checkout HEAD -- src/4_kg_builder/ekg_schema.py"
+    )
+
 from ekg_schema import EKG_Graph, EKG, INST, EVENT_TYPE_CLASS, FOAF, SKOS, EVENT, WGS84, GEO
 
 

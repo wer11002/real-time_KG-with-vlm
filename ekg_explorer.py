@@ -9,10 +9,12 @@ Run:
 
 import sys
 import argparse
+import tempfile
 from pathlib import Path
 from collections import defaultdict
 
 import streamlit as st
+import streamlit.components.v1 as components
 from rdflib import Graph, Namespace, RDF, RDFS, OWL, URIRef
 
 # ── namespaces ────────────────────────────────────────────────────────────────
@@ -177,9 +179,10 @@ c4.metric("Instances",  total_inst)
 st.divider()
 
 # tabs
-tab_search, tab_schema, tab_instances = st.tabs([
+tab_search, tab_schema, tab_graph, tab_instances = st.tabs([
     "🔍 Search",
     "📋 Full Schema",
+    "🕸️ Graph",
     "🗂️ Instances",
 ])
 
@@ -342,3 +345,191 @@ with tab_instances:
                         st.caption(f"  {ns_prefix(pred)} = {obj_str}")
             if len(inst) > 30:
                 st.caption(f"…{len(inst) - 30} more not shown")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 3 — GRAPH
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Node colors by type
+NODE_COLORS = {
+    "Match"              : "#4A90D9",   # blue
+    "Team"               : "#E74C3C",   # red
+    "Player"             : "#2ECC71",   # green
+    "GoalEvent"          : "#F1C40F",   # gold
+    "ShotEvent"          : "#F39C12",   # orange
+    "FoulEvent"          : "#E67E22",   # dark orange
+    "CornerEvent"        : "#D4AC0D",   # olive
+    "FreeKickEvent"      : "#CA6F1E",   # brown-orange
+    "SubstitutionEvent"  : "#8E44AD",   # purple
+    "OffsideEvent"       : "#1ABC9C",   # teal
+    "YellowCardEvent"    : "#F9E400",   # yellow
+    "RedCardEvent"       : "#C0392B",   # dark red
+    "ActionEvent"        : "#F0A500",   # amber (fallback)
+    "default"            : "#BDC3C7",   # grey
+}
+
+def node_color(g, uri: URIRef) -> str:
+    for t in g.objects(uri, RDF.type):
+        name = short(t)
+        if name in NODE_COLORS:
+            return NODE_COLORS[name]
+    return NODE_COLORS["default"]
+
+def node_size(g, uri: URIRef) -> int:
+    type_sizes = {"Match": 35, "Team": 30, "Player": 18}
+    for t in g.objects(uri, RDF.type):
+        name = short(t)
+        if name in type_sizes:
+            return type_sizes[name]
+    return 14
+
+def node_label(g, uri: URIRef) -> str:
+    for lbl in g.objects(uri, RDFS.label):
+        return str(lbl)
+    s = short(uri)
+    # shorten event IDs like "event_0042" → "ev_42"
+    if s.startswith("event_"):
+        return "ev_" + s.split("_")[-1].lstrip("0") or "0"
+    return s
+
+
+def build_pyvis(g, mode: str, max_nodes: int) -> str:
+    try:
+        from pyvis.network import Network
+    except ImportError:
+        return None
+
+    net = Network(height="700px", width="100%", bgcolor="#ffffff",
+                  font_color="#222222", directed=True)
+    net.barnes_hut(gravity=-12000, central_gravity=0.3,
+                   spring_length=120, spring_strength=0.04)
+
+    added_nodes = set()
+    added_edges = set()
+
+    def add_node(uri, label=None, color=None, size=14, title=None):
+        uid = str(uri)
+        if uid in added_nodes:
+            return
+        if len(added_nodes) >= max_nodes:
+            return
+        added_nodes.add(uid)
+        net.add_node(uid,
+                     label=label or short(uri),
+                     color=color or node_color(g, uri),
+                     size=size,
+                     title=title or uid,
+                     font={"size": 11})
+
+    def add_edge(src, dst, label="", color="#aaaaaa"):
+        key = (str(src), str(dst), label)
+        if key in added_edges:
+            return
+        added_edges.add(key)
+        net.add_edge(str(src), str(dst),
+                     label=label, color=color,
+                     font={"size": 9, "color": "#555555"},
+                     arrows="to", width=1.2)
+
+    # ── SCHEMA mode — T-Box classes + object properties ─────────────────────
+    if mode == "schema":
+        for cls in ekg_classes(g):
+            add_node(cls,
+                     label=short(cls),
+                     color=NODE_COLORS.get(short(cls), "#7FB3D3"),
+                     size=22)
+        for cls in ekg_classes(g):
+            for parent in g.objects(cls, RDFS.subClassOf):
+                if isinstance(parent, URIRef) and str(parent).startswith(EKG_NS):
+                    add_edge(cls, parent, "subClassOf", "#AAAAAA")
+        for ptype, prop in all_properties(g):
+            if ptype != "object":
+                continue
+            doms = list(g.objects(prop, RDFS.domain))
+            rngs = list(g.objects(prop, RDFS.range))
+            for d in doms:
+                for r in rngs:
+                    if isinstance(d, URIRef) and isinstance(r, URIRef):
+                        add_edge(d, r, short(prop), "#4A90D9")
+
+    # ── INSTANCE mode — A-Box data ───────────────────────────────────────────
+    else:
+        obj_props = {str(p) for _, p in all_properties(g) if _ == "object"}
+
+        # Add Match and Team nodes first (always visible anchors)
+        for uri in g.subjects(RDF.type, EKG.Match):
+            if isinstance(uri, URIRef):
+                lbl = next((str(o) for o in g.objects(uri, RDFS.label)), short(uri))
+                add_node(uri, label=lbl,
+                         color=NODE_COLORS["Match"], size=35,
+                         title=f"Match: {lbl}")
+        for uri in g.subjects(RDF.type, EKG.Team):
+            if isinstance(uri, URIRef):
+                lbl = next((str(o) for o in g.objects(uri, RDFS.label)), short(uri))
+                add_node(uri, label=lbl,
+                         color=NODE_COLORS["Team"], size=30,
+                         title=f"Team: {lbl}")
+        for uri in g.subjects(RDF.type, EKG.Player):
+            if isinstance(uri, URIRef):
+                lbl = next((str(o) for o in g.objects(uri, RDFS.label)), short(uri))
+                add_node(uri, label=lbl,
+                         color=NODE_COLORS["Player"], size=18,
+                         title=f"Player: {lbl}")
+
+        # Events — up to max_nodes
+        for uri in g.subjects(RDF.type, EKG.ActionEvent):
+            if not isinstance(uri, URIRef):
+                continue
+            etype = next((short(t) for t in g.objects(uri, RDF.type)
+                          if short(t).endswith("Event") and short(t) != "ActionEvent"), "ActionEvent")
+            color = NODE_COLORS.get(etype, NODE_COLORS["ActionEvent"])
+            time_val = next((str(o) for o in g.objects(uri, EKG.hasTime)), "")
+            add_node(uri,
+                     label=f"{etype.replace('Event','')}\n{time_val}",
+                     color=color, size=14,
+                     title=f"{etype} @ {time_val}")
+
+        # Edges — object properties only
+        for s, p, o in g:
+            if not isinstance(s, URIRef) or not isinstance(o, URIRef):
+                continue
+            if str(p) not in obj_props:
+                continue
+            if str(s) not in added_nodes or str(o) not in added_nodes:
+                continue
+            prop_name = short(p)
+            edge_colors = {
+                "IN_MATCH"      : "#4A90D9",
+                "IS_PERFORMED_BY": "#2ECC71",
+                "PERFORMED"     : "#2ECC71",
+                "INVOLVED_IN"   : "#E74C3C",
+                "PLAYS_FOR"     : "#8E44AD",
+                "PRECEDED_BY"   : "#888888",
+            }
+            add_edge(s, o, prop_name, edge_colors.get(prop_name, "#BBBBBB"))
+
+    # write to temp file and return HTML
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
+        net.save_graph(f.name)
+        return Path(f.name).read_text()
+
+
+with tab_graph:
+    col_mode, col_max = st.columns([2, 1])
+    with col_mode:
+        graph_mode = st.radio(
+            "View",
+            ["Instance graph (A-Box)", "Schema graph (T-Box)"],
+            horizontal=True,
+        )
+    with col_max:
+        max_nodes = st.slider("Max nodes", 20, 300, 120, step=10)
+
+    mode_key = "schema" if "Schema" in graph_mode else "instance"
+
+    html = build_pyvis(g, mode_key, max_nodes)
+    if html is None:
+        st.error("pyvis not installed. Run: `pip install pyvis`")
+    else:
+        components.html(html, height=720, scrolling=False)

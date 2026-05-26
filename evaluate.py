@@ -425,7 +425,7 @@ def print_pipeline_summary(events: list, gt: list):
     gt_cnt  = Counter(e["action"] for e in gt)
 
     print(f"\n{'─'*76}")
-    print(f"  PIPELINE OUTPUT SUMMARY (Blackburn vs Forest)")
+    print(f"  PIPELINE OUTPUT SUMMARY (match: {match_filter})")
     print(f"{'─'*76}")
     print(f"  Total KG events   : {total}")
     print(f"  Matched (T1+T2)   : {matched}")
@@ -464,7 +464,8 @@ def main(args):
         return
 
     csv_path = Path(args.csv) if args.csv else CSV_PATH
-    gt = load_ground_truth(LABELS_PATH, csv_path=csv_path)
+    labels_path = Path(args.labels) if args.labels else LABELS_PATH
+    gt = load_ground_truth(labels_path, csv_path=csv_path)
     if args.coverage_min is not None:
         before = len(gt)
         gt = [e for e in gt if e["time_min"] <= args.coverage_min]
@@ -531,5 +532,7 @@ if __name__ == "__main__":
                         help="Exclude GT events after this minute (e.g. 35 for 70-clip test)")
     parser.add_argument("--csv",          type=str,   default=None,
                         help="Path to ESPN CSV for Foul/Corner GT (default: data/blackburn_forest_2019-10-01.csv)")
+    parser.add_argument("--labels",       type=str,   default=None,
+                        help="Path to Labels-ball.json (default: Blackburn match)")
     args = parser.parse_args()
     main(args)

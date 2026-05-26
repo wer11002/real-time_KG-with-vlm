@@ -161,8 +161,28 @@ def process_match(src_dir: Path, data_dir: Path, do_videos: bool, resolutions: l
 
 # ── Download ─────────────────────────────────────────────────────────────────
 
+def _patch_exists_for(allowed_dirs: set):
+    """
+    Monkey-patch os.path.exists so SoccerNet skips .mkv downloads for
+    match dirs NOT in allowed_dirs (by pretending the file already exists).
+    Returns the original function so the caller can restore it.
+    """
+    import os
+    _orig = os.path.exists
+
+    def _patched(path):
+        s = str(path)
+        if s.endswith(".mkv"):
+            if not any(s.startswith(str(d)) for d in allowed_dirs):
+                return True  # pretend file exists → SoccerNet skips it
+        return _orig(s)
+
+    os.path.exists = _patched
+    return _orig
+
+
 def download(raw_dir: Path, password: str, labels_only: bool,
-             splits: list, resolutions: list):
+             splits: list, resolutions: list, max_matches: int = None):
     try:
         from SoccerNet.Downloader import SoccerNetDownloader
     except ImportError:
@@ -174,20 +194,37 @@ def download(raw_dir: Path, password: str, labels_only: bool,
         dl.password = password
 
     print(f"Splits : {splits}")
+    if max_matches:
+        print(f"Limit  : {max_matches} matches")
     print()
 
-    # Labels (no password needed)
+    # Labels — download all (fast, ~65 KB each)
     print("─── Downloading labels ───")
     dl.downloadGames(files=["Labels-v2.json"], split=splits)
 
-    # Videos (password required)
+    # Videos — optionally limited to first N match dirs
     if not labels_only:
-        for res in resolutions:
-            print(f"─── Downloading {res} videos ───")
-            dl.downloadGames(
-                files=[f"1_{res}.mkv", f"2_{res}.mkv"],
-                split=splits,
-            )
+        # Identify which match dirs to allow
+        all_dirs = list(iter_match_dirs(raw_dir))
+        if max_matches:
+            allowed = set(str(d) for d in all_dirs[:max_matches])
+            print(f"\nVideo download limited to {len(allowed)} matches:")
+            for d in all_dirs[:max_matches]:
+                print(f"  {d.parent.parent.name}/{d.parent.name}/{d.name}")
+        else:
+            allowed = set(str(d) for d in all_dirs)
+
+        import os
+        orig_exists = _patch_exists_for(allowed)
+        try:
+            for res in resolutions:
+                print(f"\n─── Downloading {res} videos (limited to {len(allowed)}) ───")
+                dl.downloadGames(
+                    files=[f"1_{res}.mkv", f"2_{res}.mkv"],
+                    split=splits,
+                )
+        finally:
+            os.path.exists = orig_exists  # always restore
 
 
 # ── Walk raw directory ────────────────────────────────────────────────────────
@@ -285,6 +322,7 @@ def main():
             labels_only  = args.labels_only,
             splits       = args.splits,
             resolutions  = args.resolutions,
+            max_matches  = args.max,
         )
 
     # ── convert phase ────────────────────────────────────────────────────────

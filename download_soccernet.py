@@ -173,25 +173,20 @@ def download(raw_dir: Path, password: str, labels_only: bool,
     if password:
         dl.password = password
 
-    print(f"Task   : ball-action-spotting")
     print(f"Splits : {splits}")
     print()
 
     # Labels (no password needed)
     print("─── Downloading labels ───")
-    dl.downloadDataTask(
-        task="ball-action-spotting",
-        split=splits,
-    )
+    dl.downloadGames(files=["Labels-v2.json"], split=splits)
 
     # Videos (password required)
     if not labels_only:
         for res in resolutions:
             print(f"─── Downloading {res} videos ───")
-            dl.downloadDataTask(
-                task="ball-action-spotting",
+            dl.downloadGames(
+                files=[f"1_{res}.mkv", f"2_{res}.mkv"],
                 split=splits,
-                version=res,
             )
 
 

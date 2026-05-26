@@ -37,17 +37,6 @@ NUM_FRAMES  = 32
 
 VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside"}
 
-# Per-action minimum confidence — higher bar for rare/high-stakes events.
-# Actions not listed fall back to the min_confidence parameter (default 0.5).
-CONFIDENCE_THRESHOLDS: Dict[str, float] = {
-    "Goal"        : 0.72,
-    "Corner"      : 0.75,
-    "Shot"        : 0.68,
-    "Foul"        : 0.65,
-    "Free_Kick"   : 0.60,
-    "Substitution": 0.55,
-    "Offside"     : 0.50,
-}
 
 GOAL_KEYWORDS = {"back of the net", "into the net", "hits the net",
                  "goal", "scores", "scored", "equalis", "1-0", "1-1",
@@ -454,8 +443,7 @@ Respond ONLY with this JSON (no markdown, no extra text):
       "foul_type": "tackle" or "handball" or "push" or "shirt_pull" or "trip" or "elbow" or null,
       "team_side": "home" or "away" or null,
       "ball_visible": true or false,
-      "description": "WHO (jersey# and kit color if visible), WHAT action with WHAT technique (left/right foot, header, slide tackle), WHERE on pitch (be specific: top of box, six-yard box, left flank), WHAT HAPPENED immediately after (saved by keeper, hit post, went wide, goal scored). Example: 'Player #7 in blue cuts inside from the right and drives a low right-footed shot from the edge of the penalty area — saved low by the goalkeeper to his left'",
-      "confidence": 0.0 to 1.0
+      "description": "WHO (jersey# and kit color if visible), WHAT action with WHAT technique (left/right foot, header, slide tackle), WHERE on pitch (be specific: top of box, six-yard box, left flank), WHAT HAPPENED immediately after (saved by keeper, hit post, went wide, goal scored). Example: 'Player #7 in blue cuts inside from the right and drives a low right-footed shot from the edge of the penalty area — saved low by the goalkeeper to his left'"
     }
   ]
 }
@@ -599,7 +587,6 @@ def _seconds_to_gametime(seconds: float, halftime_sec: float) -> str:
 
 def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
                    halftime_sec: float = 2700.0,
-                   min_confidence: float = 0.5,
                    recent_events: Optional[List[Dict]] = None) -> List[Dict]:
     """
     Main entry point for the pipeline.
@@ -632,11 +619,6 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
         if action not in VALID_ACTIONS:
             continue
 
-        confidence = float(raw.get("confidence", 0.0))
-        threshold  = CONFIDENCE_THRESHOLDS.get(action, min_confidence)
-        if confidence < threshold:
-            continue
-
         time_in_clip = estimate_time(raw.get("frame_index"), frame_times, duration_sec)
         video_time   = clip_start_sec + time_in_clip
         team_color   = raw.get("team_color")
@@ -659,7 +641,7 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
             "description" : raw.get("description", ""),
             "video_time"  : video_time,
             "time_in_clip": round(time_in_clip, 1),
-            "confidence"  : float(raw.get("confidence", 0.5)),
+            "confidence"  : 1.0,
             "gametime"    : _seconds_to_gametime(video_time, halftime_sec),
         })
 
@@ -671,7 +653,6 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
         for d in detections:
             if d.get("action") != "Shot":
                 continue
-            conf = float(d.get("confidence", 0.0))
             desc = str(d.get("description", "")).lower()
             outcome = str(d.get("outcome", "")).lower()
             has_keyword = any(kw in desc for kw in GOAL_KEYWORDS)
@@ -680,14 +661,14 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
                               "saved_low", "off_target", "missed"}
             if outcome in SAVED_OUTCOMES:
                 continue
-            if conf >= 0.70 and (has_keyword or has_outcome):
-                print(f"  [goal_verify] Shot at conf={conf:.2f} — running goal check")
+            if has_keyword or has_outcome:
+                print(f"  [goal_verify] Shot with goal evidence — running goal check")
                 result = verify_goal(frames, model, processor, device)
-                if result.get("goal_scored") and result.get("confidence", 0) >= 0.70:
+                if result.get("goal_scored"):
                     print(f"  [goal_verify] GOAL confirmed: {result.get('evidence')}")
                     goal_det = dict(d)
                     goal_det["action"]     = "Goal"
-                    goal_det["confidence"] = result["confidence"]
+                    goal_det["confidence"] = 1.0
                     goal_det["outcome"]    = "scored"
                     detections.append(goal_det)
                     break  # only one goal per clip

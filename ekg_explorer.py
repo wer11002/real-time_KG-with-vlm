@@ -199,11 +199,31 @@ with tab_search:
     )
 
     if not query:
-        st.caption("Type a class or property name above — partial matches shown.")
+        st.caption("Type a class or property name above — partial matches shown. Case-insensitive.")
     else:
         q = query.strip().lower()
-        hit_classes = [c for c in classes  if q in short(c).lower()]
-        hit_props   = [(t, p) for t, p in props if q in short(p).lower()]
+
+        def class_matches(cls):
+            # match own name
+            if q in short(cls).lower():
+                return True
+            # match any RDFS label
+            if any(q in str(lbl).lower() for lbl in g.objects(cls, RDFS.label)):
+                return True
+            # match any ancestor name (e.g. "person" → Player because Player ⊆ foaf:Person)
+            if any(q in short(a).lower() for a in ancestors(g, cls)):
+                return True
+            return False
+
+        def prop_matches(prop):
+            if q in short(prop).lower():
+                return True
+            if any(q in str(lbl).lower() for lbl in g.objects(prop, RDFS.label)):
+                return True
+            return False
+
+        hit_classes = [c for c in classes if class_matches(c)]
+        hit_props   = [(t, p) for t, p in props if prop_matches(p)]
 
         if not hit_classes and not hit_props:
             st.warning(f"No matches for **{query}**")
@@ -212,7 +232,9 @@ with tab_search:
             if hit_classes:
                 st.subheader(f"Classes  ({len(hit_classes)})")
                 for cls in hit_classes:
-                    with st.expander(f"🏷️  {short(cls)}", expanded=True):
+                    anc_match = [a for a in ancestors(g, cls) if q in short(a).lower()]
+                    via = f"  —  via `{ns_prefix(anc_match[0])}`" if anc_match and q not in short(cls).lower() else ""
+                    with st.expander(f"🏷️  {short(cls)}{via}", expanded=True):
                         left, right = st.columns([1, 1])
 
                         with left:

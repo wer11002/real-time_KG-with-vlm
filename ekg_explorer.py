@@ -364,7 +364,7 @@ with tab_instances:
                 display = label_val or short(i)
                 col_lbl, col_btn = st.columns([5, 1])
                 col_lbl.markdown(f"**{display}**  `{short(i)}`")
-                if col_btn.button("Inspect →", key=f"ins_{str(i)}"):
+                if col_btn.button("Inspect →", key=f"ins_{short(cls)}_{str(i)}"):
                     goto(str(i))
                     st.rerun()
             if len(inst) > 30:

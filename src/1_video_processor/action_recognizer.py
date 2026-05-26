@@ -48,7 +48,7 @@ Did the ball visibly cross the goal line and enter the net at any point in these
 Also check: are players celebrating with arms raised? Is the goalkeeper retrieving the ball from inside the net?
 
 Respond ONLY with this exact JSON:
-{"goal_scored": true or false, "confidence": 0.0 to 1.0, "evidence": "one sentence describing what you see"}"""
+{"goal_scored": true or false, "evidence": "one sentence describing what you see"}"""
 
 
 # default color map — used as fallback if ESPN colors not loaded
@@ -330,7 +330,7 @@ def extract_frames(clip_path: str, num_frames: int = NUM_FRAMES):
 def verify_goal(frames: list, model, processor, device) -> dict:
     """
     Focused second-pass check: did a goal occur in these frames?
-    Returns {"goal_scored": bool, "confidence": float, "evidence": str}
+    Returns {"goal_scored": bool, "evidence": str}
     """
     try:
         content = []
@@ -364,7 +364,7 @@ def verify_goal(frames: list, model, processor, device) -> dict:
             return json.loads(match.group())
     except Exception as e:
         print(f"  [goal_verify] error: {e}")
-    return {"goal_scored": False, "confidence": 0.0, "evidence": ""}
+    return {"goal_scored": False, "evidence": ""}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

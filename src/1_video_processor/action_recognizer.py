@@ -40,9 +40,9 @@ VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", 
 # Per-action minimum confidence — higher bar for rare/high-stakes events.
 # Actions not listed fall back to the min_confidence parameter (default 0.5).
 CONFIDENCE_THRESHOLDS: Dict[str, float] = {
-    "Goal"        : 0.65,
+    "Goal"        : 0.72,
     "Corner"      : 0.75,
-    "Shot"        : 0.65,
+    "Shot"        : 0.68,
     "Foul"        : 0.65,
     "Free_Kick"   : 0.60,
     "Substitution": 0.55,
@@ -676,10 +676,14 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
             outcome = str(d.get("outcome", "")).lower()
             has_keyword = any(kw in desc for kw in GOAL_KEYWORDS)
             has_outcome = outcome in {"scored", "goal"}
+            SAVED_OUTCOMES = {"saved", "blocked", "wide", "over", "saved_high",
+                              "saved_low", "off_target", "missed"}
+            if outcome in SAVED_OUTCOMES:
+                continue
             if conf >= 0.70 and (has_keyword or has_outcome):
                 print(f"  [goal_verify] Shot at conf={conf:.2f} — running goal check")
                 result = verify_goal(frames, model, processor, device)
-                if result.get("goal_scored") and result.get("confidence", 0) >= 0.60:
+                if result.get("goal_scored") and result.get("confidence", 0) >= 0.70:
                     print(f"  [goal_verify] GOAL confirmed: {result.get('evidence')}")
                     goal_det = dict(d)
                     goal_det["action"]     = "Goal"

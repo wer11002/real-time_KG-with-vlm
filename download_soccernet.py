@@ -125,18 +125,21 @@ def process_match(src_dir: Path, data_dir: Path, do_videos: bool, resolutions: l
     dst.mkdir(parents=True, exist_ok=True)
     wrote_anything = False
 
-    # Labels ─────────────────────────────────────────────────────────────────
-    labels_src = src_dir / "Labels-v2.json"
+    # Labels — accept Labels-ball.json (ball-action-spotting task) or Labels-v2.json
     labels_dst = dst / "Labels-ball.json"
-    if labels_src.exists():
+    labels_src = next(
+        (src_dir / f for f in ("Labels-ball.json", "Labels-v2.json") if (src_dir / f).exists()),
+        None,
+    )
+    if labels_src:
         if not labels_dst.exists():
             shutil.copy2(labels_src, labels_dst)
-            print(f"  labels  ✓  {dst.name}/Labels-ball.json")
+            print(f"  labels  ✓  {dst.name}/Labels-ball.json  (from {labels_src.name})")
         else:
             print(f"  labels  —  already exists, skipped")
         wrote_anything = True
     else:
-        print(f"  labels  ✗  Labels-v2.json not found in {src_dir.name}")
+        print(f"  labels  ✗  no label file found in {src_dir.name}")
 
     # Videos ─────────────────────────────────────────────────────────────────
     if do_videos:
@@ -159,7 +162,7 @@ def process_match(src_dir: Path, data_dir: Path, do_videos: bool, resolutions: l
 # ── Download ─────────────────────────────────────────────────────────────────
 
 def download(raw_dir: Path, password: str, labels_only: bool,
-             leagues: list, splits: list, resolutions: list):
+             splits: list, resolutions: list):
     try:
         from SoccerNet.Downloader import SoccerNetDownloader
     except ImportError:
@@ -170,27 +173,26 @@ def download(raw_dir: Path, password: str, labels_only: bool,
     if password:
         dl.password = password
 
-    files = ["Labels-v2.json"]
-    if not labels_only:
-        for res in resolutions:
-            files += [f"1_{res}.mkv", f"2_{res}.mkv"]
-
-    print(f"Files to download : {files}")
-    print(f"Leagues           : {leagues}")
-    print(f"Splits            : {splits}")
+    print(f"Task   : ball-action-spotting")
+    print(f"Splits : {splits}")
     print()
 
-    for league in leagues:
-        print(f"─── Downloading {league} ───")
-        try:
-            dl.downloadGames(
-                files=files,
+    # Labels (no password needed)
+    print("─── Downloading labels ───")
+    dl.downloadDataTask(
+        task="ball-action-spotting",
+        split=splits,
+    )
+
+    # Videos (password required)
+    if not labels_only:
+        for res in resolutions:
+            print(f"─── Downloading {res} videos ───")
+            dl.downloadDataTask(
+                task="ball-action-spotting",
                 split=splits,
-                LeaguesFolders=[league],
+                version=res,
             )
-        except TypeError:
-            # Older SoccerNet versions may not support LeaguesFolders
-            dl.downloadGames(files=files, split=splits)
 
 
 # ── Walk raw directory ────────────────────────────────────────────────────────
@@ -286,7 +288,6 @@ def main():
             raw_dir      = raw_dir,
             password     = args.password,
             labels_only  = args.labels_only,
-            leagues      = args.leagues,
             splits       = args.splits,
             resolutions  = args.resolutions,
         )

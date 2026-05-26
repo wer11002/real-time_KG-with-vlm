@@ -100,7 +100,7 @@ class MatchedEvent:
 # CONFIDENCE SCORING  (replaces ESPN play-by-play gate)
 # ═══════════════════════════════════════════════════════════════════════════
 
-CONFIDENCE_THRESHOLD = 0.60
+CONFIDENCE_THRESHOLD = 0.48
 
 
 def compute_event_confidence(event: dict) -> float:
@@ -138,11 +138,14 @@ def compute_event_confidence(event: dict) -> float:
     else:
         consistency = 1.0
 
+    # Weights revised from logistic regression validation (validate_confidence.py):
+    # jersey presence is strongest predictor; VLM base confidence unreliable;
+    # completeness penalised slightly — VLM over-fills fields when hallucinating.
     score = (
-        0.50 * base
-        + 0.30 * completeness
-        + 0.10 * jersey_bonus
-        + 0.10 * consistency
+        0.15 * base
+        + 0.05 * completeness
+        + 0.60 * jersey_bonus
+        + 0.20 * consistency
     )
     return round(min(max(score, 0.0), 1.0), 3)
 

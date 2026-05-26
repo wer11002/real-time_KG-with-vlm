@@ -35,7 +35,11 @@ from typing import Optional, Tuple
 from rdflib import Literal, RDF, RDFS, XSD
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.path.insert(0, str(Path(__file__).parent))
+
+# Use resolve() so the path is absolute even when __file__ is relative
+_THIS_DIR = Path(__file__).resolve().parent
+if str(_THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(_THIS_DIR))
 
 from ekg_schema import EKG_Graph, EKG, INST, EVENT_TYPE_CLASS, FOAF, SKOS, EVENT, WGS84, GEO
 

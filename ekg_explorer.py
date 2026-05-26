@@ -129,12 +129,16 @@ def instances_of(g, cls: URIRef) -> list[URIRef]:
 
 # ── full T-Box flow diagram ───────────────────────────────────────────────────
 
-def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 460) -> str | None:
+def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 600) -> str | None:
     """
-    Full T-Box as a top-down rectangular flowchart.
-    Levels: Match(0) → Team(1) → Player(2) → ActionEvent(3) → subtypes(4+)
-    Solid gray  = subClassOf
-    Dashed blue = key object properties (hasHomeTeam, PLAYS_FOR, …)
+    Full T-Box schema flowchart with manual x,y positions (physics off).
+    Layout:
+      Row 0 — Match / Team / Player / Venue / League
+      Row 1 — Event (base class)
+      Row 2 — ActionEvent (left)  CardEvent (right)
+      Row 3 — ActionEvent subtypes (2 rows)  +  YellowCard / RedCard
+    Solid gray  = subClassOf (parent → child)
+    Dashed blue = key object properties
     """
     try:
         from pyvis.network import Network
@@ -143,66 +147,94 @@ def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 460) ->
 
     net = Network(height=f"{height}px", width="100%",
                   bgcolor="#ffffff", font_color="#222222", directed=True)
-    net.set_options("""
-    {
-      "layout": { "hierarchical": {
-          "enabled": true,
-          "direction": "UD",
-          "sortMethod": "directed",
-          "nodeSpacing": 150,
-          "levelSeparation": 90,
-          "treeSpacing": 200
-      }},
+    net.set_options("""{
       "physics": { "enabled": false },
-      "edges": {
-        "smooth": { "enabled": true, "type": "cubicBezier", "forceDirection": "vertical" }
-      }
-    }
-    """)
+      "edges": { "smooth": { "enabled": true, "type": "cubicBezier" } }
+    }""")
 
-    all_cls = ekg_classes(g)
+    GX, GY = 130, 108   # grid unit x, y
+
+    # ── ActionEvent anchor and children layout ────────────────────────────────
+    AC = -2 * GX          # ActionEvent center x
+    CC =  5 * GX          # CardEvent  center x
+
+    # ActionEvent has 9 children — split into two rows of 5 and 4
+    # Row 1: 5 children centered at AC
+    R1 = [AC + (i - 2) * GX for i in range(5)]   # offsets -2,-1,0,1,2 from AC
+    # Row 2: 4 children centered at AC
+    R2 = [AC + (i - 1.5) * GX for i in range(4)]
+
+    POSITIONS = {
+        # Row 0 — domain root entities
+        "Match":             (  0,        0),
+        "Team":              (-3 * GX,    0),
+        "Player":            ( 3 * GX,    0),
+        "Venue":             (-5.5 * GX,  0),
+        "League":            ( 5.5 * GX,  0),
+        # Row 1 — base event class
+        "Event":             (  0,      GY),
+        # Row 2 — mid-level event classes
+        "ActionEvent":       (AC,    2 * GY),
+        "CardEvent":         (CC,    2 * GY),
+        # Row 3a — first 5 ActionEvent children
+        "GoalEvent":         (R1[0], 3 * GY),
+        "ShotEvent":         (R1[1], 3 * GY),
+        "FoulEvent":         (R1[2], 3 * GY),
+        "CornerEvent":       (R1[3], 3 * GY),
+        "OffsideEvent":      (R1[4], 3 * GY),
+        # Row 3b — next 4 ActionEvent children (offset row)
+        "FreeKickEvent":     (R2[0], 4 * GY),
+        "SubstitutionEvent": (R2[1], 4 * GY),
+        "PenaltyEvent":      (R2[2], 4 * GY),
+        "PassEvent":         (R2[3], 4 * GY),
+        # Row 3a — CardEvent children (same row as first action subtypes)
+        "YellowCardEvent":   (CC - GX,  3 * GY),
+        "RedCardEvent":      (CC + GX,  3 * GY),
+    }
+
+    # ── color scheme ──────────────────────────────────────────────────────────
+    CLASS_COLORS = {
+        "Match":           ("#4A90D9", "#2c6fad", "#ffffff"),
+        "Team":            ("#E74C3C", "#b03a2e", "#ffffff"),
+        "Player":          ("#2ECC71", "#1a8a4a", "#ffffff"),
+        "Event":           ("#8E44AD", "#6c3483", "#ffffff"),
+        "ActionEvent":     ("#F0A500", "#c47d00", "#ffffff"),
+        "CardEvent":       ("#E67E22", "#ca6f1e", "#ffffff"),
+        "YellowCardEvent": ("#F9E400", "#c0a000", "#333333"),
+        "RedCardEvent":    ("#C0392B", "#922b21", "#ffffff"),
+    }
+    DEFAULT_C   = ("#FDE8C8", "#E8A020", "#333333")
+    HIGHLIGHT_C = ("#FF6B35", "#cc4400", "#ffffff")
+
+    def get_col(cls_uri):
+        if highlight_cls and str(cls_uri) == str(highlight_cls):
+            return HIGHLIGHT_C
+        return CLASS_COLORS.get(short(cls_uri), DEFAULT_C)
+
     added_nodes: set = set()
     added_edges: set = set()
 
-    # ── fixed level assignments ───────────────────────────────────────────────
-    FIXED = {"Match": 0, "Team": 1, "Player": 2, "ActionEvent": 3}
-
-    def get_level(cls_uri):
-        name = short(cls_uri)
-        if name in FIXED:
-            return FIXED[name]
-        anc_ekg = [a for a in ancestors(g, cls_uri) if str(a).startswith(EKG_NS)]
-        return len(anc_ekg) + 3   # ActionEvent baseline = 3
-
-    # ── color scheme ─────────────────────────────────────────────────────────
-    def get_colors(cls_uri):
-        if highlight_cls and str(cls_uri) == str(highlight_cls):
-            return {"background": "#FF6B35", "border": "#cc4400"}, "#ffffff"
-        name = short(cls_uri)
-        if "Match"   in name: return {"background": "#4A90D9", "border": "#2c6fad"}, "#ffffff"
-        if "Team"    in name: return {"background": "#E74C3C", "border": "#b03a2e"}, "#ffffff"
-        if "Player"  in name: return {"background": "#2ECC71", "border": "#1a8a4a"}, "#ffffff"
-        if name == "ActionEvent":
-                               return {"background": "#F0A500", "border": "#c47d00"}, "#ffffff"
-        return {"background": "#FDE8C8", "border": "#E8A020"}, "#333333"
-
-    def add_n(cls_uri):
-        uid = str(cls_uri)
-        if uid in added_nodes:
-            return
-        added_nodes.add(uid)
-        col, fcol = get_colors(cls_uri)
-        is_hl = highlight_cls and str(cls_uri) == str(highlight_cls)
+    # ── add nodes with manual positions ──────────────────────────────────────
+    for cls in ekg_classes(g):
+        name = short(cls)
+        pos  = POSITIONS.get(name)
+        if pos is None:
+            continue  # class not in layout map → skip
+        uid = str(cls)
+        bg, border, fc = get_col(cls)
+        is_hl = highlight_cls and str(cls) == str(highlight_cls)
         net.add_node(
             uid,
-            label=ns_prefix(cls_uri),
-            color=col,
-            font={"color": fcol, "size": 11, "bold": bool(is_hl)},
+            label=ns_prefix(cls),
+            x=int(pos[0]), y=int(pos[1]),
+            color={"background": bg, "border": border},
+            font={"color": fc, "size": 11, "bold": bool(is_hl)},
             shape="box",
-            level=get_level(cls_uri),
+            physics=False,
         )
+        added_nodes.add(uid)
 
-    def add_e(src, dst, label, color="#AAAAAA", dashes=False, width=1.5):
+    def add_e(src, dst, label, color, dashes=False, width=1.8):
         key = (str(src), str(dst), label)
         if key in added_edges:
             return
@@ -211,37 +243,38 @@ def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 460) ->
         added_edges.add(key)
         net.add_edge(str(src), str(dst), label=label, color=color,
                      arrows="to", width=width, dashes=dashes,
-                     font={"size": 9, "color": "#777777"})
+                     font={"size": 9, "color": "#666"})
 
-    # all EKG classes as boxes
-    for cls in all_cls:
-        add_n(cls)
-
-    # subClassOf: draw parent → child (down the hierarchy)
-    for cls in all_cls:
+    # ── subClassOf edges: EKG parent → child ──────────────────────────────────
+    for cls in ekg_classes(g):
+        if str(cls) not in added_nodes:
+            continue
         for parent in g.objects(cls, RDFS.subClassOf):
             if isinstance(parent, URIRef) and str(parent).startswith(EKG_NS):
-                add_e(parent, cls, "", "#BBBBBB", dashes=False, width=1.8)
+                add_e(parent, cls, "", "#BBBBBB", dashes=False, width=2.2)
 
-    # key object properties as dashed colored arrows
+    # ── key object-property edges (dashed, colored) ───────────────────────────
     PROP_COLORS = {
-        "hasHomeTeam"    : "#4A90D9",
-        "hasAwayTeam"    : "#4A90D9",
-        "PLAYS_FOR"      : "#2ECC71",
-        "IN_MATCH"       : "#9B59B6",
+        "hasHomeTeam":     "#4A90D9",
+        "hasAwayTeam":     "#4A90D9",
+        "PLAYS_FOR":       "#2ECC71",
+        "PERFORMED":       "#E74C3C",
         "IS_PERFORMED_BY": "#E74C3C",
-        "INVOLVED_IN"    : "#E74C3C",
+        "INVOLVED_IN":     "#E74C3C",
+        "IN_MATCH":        "#9B59B6",
+        "TRIGGERED":       "#E67E22",
     }
     for ptype, prop in all_properties(g):
         if ptype != "object":
             continue
         pname = short(prop)
-        if pname not in PROP_COLORS:
+        col   = PROP_COLORS.get(pname)
+        if not col:
             continue
         for dom in g.objects(prop, RDFS.domain):
             for rng in g.objects(prop, RDFS.range):
                 if isinstance(dom, URIRef) and isinstance(rng, URIRef):
-                    add_e(dom, rng, pname, PROP_COLORS[pname], dashes=True, width=1.2)
+                    add_e(dom, rng, pname, col, dashes=True, width=1.4)
 
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
         net.save_graph(f.name)
@@ -378,9 +411,9 @@ with tab_search:
                             + ("  ›  ".join(ns_prefix(a) for a in reversed(anc_list))
                                + f"  ›  **{ns_prefix(cls)}**" if anc_list else "Root class")
                         )
-                        tbox_html = build_tbox_flow_graph(g, cls, height=460)
+                        tbox_html = build_tbox_flow_graph(g, cls, height=600)
                         if tbox_html:
-                            components.html(tbox_html, height=470, scrolling=False)
+                            components.html(tbox_html, height=610, scrolling=False)
                         else:
                             st.caption("pyvis not installed — run `pip install pyvis`")
 

@@ -127,77 +127,121 @@ def instances_of(g, cls: URIRef) -> list[URIRef]:
             if isinstance(s, URIRef) and str(s).startswith(INST_NS)]
 
 
-# ── inline T-Box hierarchy graph ─────────────────────────────────────────────
+# ── full T-Box flow diagram ───────────────────────────────────────────────────
 
-def build_hierarchy_graph(g, cls: URIRef, height: int = 320) -> str | None:
-    """Small pyvis flow: ancestors → cls (highlighted) → descendants."""
+def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 460) -> str | None:
+    """
+    Full T-Box as a top-down rectangular flowchart.
+    Levels: Match(0) → Team(1) → Player(2) → ActionEvent(3) → subtypes(4+)
+    Solid gray  = subClassOf
+    Dashed blue = key object properties (hasHomeTeam, PLAYS_FOR, …)
+    """
     try:
         from pyvis.network import Network
     except ImportError:
         return None
 
-    anc_chain = list(reversed(ancestors(g, cls)))   # root → ... → parent
-    desc_list = descendants(g, cls)                 # [(cls, depth), ...]
-
-    net = Network(
-        height=f"{height}px", width="100%",
-        bgcolor="#ffffff", font_color="#222222",
-        directed=True,
-    )
+    net = Network(height=f"{height}px", width="100%",
+                  bgcolor="#ffffff", font_color="#222222", directed=True)
     net.set_options("""
     {
       "layout": { "hierarchical": {
           "enabled": true,
           "direction": "UD",
           "sortMethod": "directed",
-          "nodeSpacing": 120,
-          "levelSeparation": 70
+          "nodeSpacing": 150,
+          "levelSeparation": 90,
+          "treeSpacing": 200
       }},
       "physics": { "enabled": false },
-      "edges": { "smooth": { "type": "cubicBezier" } }
+      "edges": {
+        "smooth": { "enabled": true, "type": "cubicBezier", "forceDirection": "vertical" }
+      }
     }
     """)
 
-    added = set()
+    all_cls = ekg_classes(g)
+    added_nodes: set = set()
+    added_edges: set = set()
 
-    def add_n(uri, label, color, size=18):
-        uid = str(uri)
-        if uid in added:
+    # ── fixed level assignments ───────────────────────────────────────────────
+    FIXED = {"Match": 0, "Team": 1, "Player": 2, "ActionEvent": 3}
+
+    def get_level(cls_uri):
+        name = short(cls_uri)
+        if name in FIXED:
+            return FIXED[name]
+        anc_ekg = [a for a in ancestors(g, cls_uri) if str(a).startswith(EKG_NS)]
+        return len(anc_ekg) + 3   # ActionEvent baseline = 3
+
+    # ── color scheme ─────────────────────────────────────────────────────────
+    def get_colors(cls_uri):
+        if highlight_cls and str(cls_uri) == str(highlight_cls):
+            return {"background": "#FF6B35", "border": "#cc4400"}, "#ffffff"
+        name = short(cls_uri)
+        if "Match"   in name: return {"background": "#4A90D9", "border": "#2c6fad"}, "#ffffff"
+        if "Team"    in name: return {"background": "#E74C3C", "border": "#b03a2e"}, "#ffffff"
+        if "Player"  in name: return {"background": "#2ECC71", "border": "#1a8a4a"}, "#ffffff"
+        if name == "ActionEvent":
+                               return {"background": "#F0A500", "border": "#c47d00"}, "#ffffff"
+        return {"background": "#FDE8C8", "border": "#E8A020"}, "#333333"
+
+    def add_n(cls_uri):
+        uid = str(cls_uri)
+        if uid in added_nodes:
             return
-        added.add(uid)
-        net.add_node(uid, label=label, color=color, size=size,
-                     title=ns_prefix(uri), font={"size": 12, "bold": uid == str(cls)})
+        added_nodes.add(uid)
+        col, fcol = get_colors(cls_uri)
+        is_hl = highlight_cls and str(cls_uri) == str(highlight_cls)
+        net.add_node(
+            uid,
+            label=ns_prefix(cls_uri),
+            color=col,
+            font={"color": fcol, "size": 11, "bold": bool(is_hl)},
+            shape="box",
+            level=get_level(cls_uri),
+        )
 
-    def add_e(parent_uri, child_uri):
-        pu, cu = str(parent_uri), str(child_uri)
-        if pu in added and cu in added:
-            net.add_edge(pu, cu, label="subClassOf",
-                         color="#AAAAAA", arrows="to", width=1.5,
-                         font={"size": 9, "color": "#888888"})
+    def add_e(src, dst, label, color="#AAAAAA", dashes=False, width=1.5):
+        key = (str(src), str(dst), label)
+        if key in added_edges:
+            return
+        if str(src) not in added_nodes or str(dst) not in added_nodes:
+            return
+        added_edges.add(key)
+        net.add_edge(str(src), str(dst), label=label, color=color,
+                     arrows="to", width=width, dashes=dashes,
+                     font={"size": 9, "color": "#777777"})
 
-    # ancestors (light blue, smallest)
-    for a in anc_chain:
-        add_n(a, ns_prefix(a), "#7FB3D3", size=16)
+    # all EKG classes as boxes
+    for cls in all_cls:
+        add_n(cls)
 
-    # selected class (orange, largest)
-    add_n(cls, ns_prefix(cls), "#FF6B35", size=24)
+    # subClassOf: draw parent → child (down the hierarchy)
+    for cls in all_cls:
+        for parent in g.objects(cls, RDFS.subClassOf):
+            if isinstance(parent, URIRef) and str(parent).startswith(EKG_NS):
+                add_e(parent, cls, "", "#BBBBBB", dashes=False, width=1.8)
 
-    # edges: ancestors chain
-    chain = anc_chain + [cls]
-    for i in range(len(chain) - 1):
-        add_e(chain[i], chain[i + 1])
-
-    # descendants (light green, small)
-    for d, _ in desc_list:
-        add_n(d, ns_prefix(d), "#82C9A0", size=14)
-
-    # edges: each descendant → its direct parent in the set
-    all_nodes_set = set(anc_chain) | {cls} | {d for d, _ in desc_list}
-    for d, _ in desc_list:
-        for par in g.objects(d, RDFS.subClassOf):
-            if isinstance(par, URIRef) and par in all_nodes_set:
-                add_e(par, d)
-                break
+    # key object properties as dashed colored arrows
+    PROP_COLORS = {
+        "hasHomeTeam"    : "#4A90D9",
+        "hasAwayTeam"    : "#4A90D9",
+        "PLAYS_FOR"      : "#2ECC71",
+        "IN_MATCH"       : "#9B59B6",
+        "IS_PERFORMED_BY": "#E74C3C",
+        "INVOLVED_IN"    : "#E74C3C",
+    }
+    for ptype, prop in all_properties(g):
+        if ptype != "object":
+            continue
+        pname = short(prop)
+        if pname not in PROP_COLORS:
+            continue
+        for dom in g.objects(prop, RDFS.domain):
+            for rng in g.objects(prop, RDFS.range):
+                if isinstance(dom, URIRef) and isinstance(rng, URIRef):
+                    add_e(dom, rng, pname, PROP_COLORS[pname], dashes=True, width=1.2)
 
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
         net.save_graph(f.name)
@@ -300,26 +344,10 @@ with tab_search:
                     anc_match = [a for a in ancestors(g, cls) if q in short(a).lower()]
                     via = f"  —  via `{ns_prefix(anc_match[0])}`" if anc_match and q not in short(cls).lower() else ""
                     with st.expander(f"🏷️  {short(cls)}{via}", expanded=True):
+                        # ── top row: properties + instances ──────────────────
                         left, right = st.columns([1, 1])
 
                         with left:
-                            st.markdown("##### T-Box Hierarchy")
-                            h_html = build_hierarchy_graph(g, cls, height=320)
-                            if h_html:
-                                components.html(h_html, height=330, scrolling=False)
-                            else:
-                                st.caption("pyvis not installed — run `pip install pyvis`")
-
-                            anc_list = ancestors(g, cls)
-                            depth    = len(anc_list)
-                            st.caption(
-                                f"Depth: **{depth}** — "
-                                + "  ›  ".join(ns_prefix(a) for a in reversed(anc_list))
-                                + f"  ›  **{ns_prefix(cls)}**"
-                                if anc_list else f"Root class (depth 0)"
-                            )
-
-                        with right:
                             st.markdown("##### Properties on this class")
                             dp = domain_properties(g, cls)
                             if dp:
@@ -332,6 +360,7 @@ with tab_search:
                             else:
                                 st.caption("No direct properties declared on this class.")
 
+                        with right:
                             inst = instances_of(g, cls)
                             st.markdown(f"##### Instances: **{len(inst)}**")
                             if inst:
@@ -339,6 +368,21 @@ with tab_search:
                                     st.caption(f"• {short(i)}")
                                 if len(inst) > 8:
                                     st.caption(f"…and {len(inst) - 8} more")
+
+                        # ── full-width T-Box flow diagram ─────────────────────
+                        st.markdown("##### T-Box Schema Flow")
+                        anc_list = ancestors(g, cls)
+                        depth    = len(anc_list)
+                        st.caption(
+                            "Solid = subClassOf  ·  Dashed = object property  ·  "
+                            + ("  ›  ".join(ns_prefix(a) for a in reversed(anc_list))
+                               + f"  ›  **{ns_prefix(cls)}**" if anc_list else "Root class")
+                        )
+                        tbox_html = build_tbox_flow_graph(g, cls, height=460)
+                        if tbox_html:
+                            components.html(tbox_html, height=470, scrolling=False)
+                        else:
+                            st.caption("pyvis not installed — run `pip install pyvis`")
 
             # ── matched properties ────────────────────────────────────────
             if hit_props:

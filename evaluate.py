@@ -121,29 +121,35 @@ def load_kg_events(ttl_path: Path, match_filter: str = None) -> list:
 
     def flush(c):
         if c.get("is_event") and c.get("action") and c.get("time_str"):
-            events.append(c)
+            events.append(dict(c))
+        # pending but never confirmed = not an ActionEvent block, discard silently
 
     with open(ttl_path, encoding="utf-8") as f:
         for line in f:
             line = line.rstrip()
             stripped = line.strip()
 
-            # new ActionEvent block
-            if re.match(r"data:event_\d+\s+a\s+ekg:ActionEvent", stripped):
+            # new event block — starts with data:event_NNNN
+            if re.match(r"data:event_\d+\s+a\s+", stripped):
                 flush(current)
-                current = {"is_event": True, "matched": False}
+                current = {"is_pending": True, "matched": False}
                 continue
 
-            # new non-event block → flush
-            if re.match(r"data:\S+\s+a\s+(?!ekg:ActionEvent)", stripped):
+            # new non-event block → flush and clear
+            if re.match(r"data:\S+\s+a\s+", stripped) and not re.match(r"data:event_\d+", stripped):
                 flush(current)
                 current = {}
+                continue
+
+            # confirm it is an ActionEvent once we see the type in the block
+            if current.get("is_pending") and "ekg:ActionEvent" in stripped:
+                current["is_event"] = True
                 continue
 
             if not current.get("is_event"):
                 continue
 
-            if "ekg:hasEventType" in stripped:
+            if "ekg:hasEventType" in stripped or "dcterms:type" in stripped:
                 m = re.search(r'"([^"]+)"', stripped)
                 if m:
                     current["action"] = m.group(1)
@@ -167,7 +173,7 @@ def load_kg_events(ttl_path: Path, match_filter: str = None) -> list:
                 if m:
                     current["match"] = m.group(1)
 
-            elif "ekg:hasDescription" in stripped:
+            elif "ekg:hasDescription" in stripped or "dcterms:description" in stripped:
                 m = re.search(r'"([^"]+)"', stripped)
                 if m:
                     current["description"] = m.group(1)

@@ -257,11 +257,15 @@ def main():
     )
     parser.add_argument(
         "--raw-dir", default=str(DATA_DIR / "soccernet_raw"),
-        help="Staging directory for raw SoccerNet downloads",
+        help="Staging directory for raw SoccerNet downloads (deleted after conversion)",
     )
     parser.add_argument(
         "--data-dir", default=str(DATA_DIR),
         help="Output data directory (default: data/)",
+    )
+    parser.add_argument(
+        "--keep-raw", action="store_true",
+        help="Keep the raw staging directory after conversion (default: delete it)",
     )
 
     args = parser.parse_args()
@@ -313,6 +317,12 @@ def main():
             processed += 1
         else:
             skipped += 1
+
+    # ── cleanup staging dir ──────────────────────────────────────────────────
+    if not args.keep_raw and not args.convert_only and raw_dir.exists():
+        print(f"\nCleaning up staging directory: {raw_dir}")
+        shutil.rmtree(raw_dir)
+        print("  Deleted.")
 
     print(f"\n{'─'*60}")
     print(f"Done. {processed} matches written to {data_dir}")

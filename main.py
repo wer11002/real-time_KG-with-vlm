@@ -197,6 +197,19 @@ class ScoreValidator:
 
         return results
 
+    def flush_all(self) -> list[tuple[dict, float, str, bool]]:
+        """
+        Force-resolve all remaining pending goals at end of match.
+        All are downgraded to Shot (is_goal=False).
+        """
+        results = []
+        for p in self._pending:
+            print(f"  [score-defer] END-OF-MATCH — Goal downgraded to Shot at "
+                  f"{p['gametime']} (never confirmed by scoreboard)")
+            results.append((p["det"], p["start_sec"], p["gametime"], False))
+        self._pending = []
+        return results
+
 REGISTRY_PATH = BASE_DIR / "data" / "kg_output" / "processed_matches.json"
 
 
@@ -548,6 +561,11 @@ def run_match(
                 print(f"  → saved snapshot: {TTL_PATH.name}")
 
             print(f"  {'▲'*30}\n")
+
+    # flush any Goals still pending at end of match — log only, not ingested
+    # (buffer already flushed; these are almost certainly false positives)
+    for _, _, rorig_gametime, _ in score_validator.flush_all():
+        print(f"  [score-defer] END-OF-MATCH Shot logged at {rorig_gametime} (not ingested)")
 
     ekg.save(TTL_PATH)
     elapsed = time.time() - t0

@@ -328,7 +328,7 @@ def _create_event_node(
     """
     ekg._event_count += 1
     event_id  = f"{ekg._event_count:04d}"
-    event_uri = ekg.event_uri(event_id)
+    event_uri = ekg.event_uri(event_id, match_id)
 
     # specific OWL class — enables reasoning over event subtypes
     specific_class = EVENT_TYPE_CLASS.get(event_type)

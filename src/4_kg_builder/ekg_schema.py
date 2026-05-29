@@ -341,8 +341,9 @@ class EKG_Graph:
         return INST[f"match_{match_id}"]
 
     @staticmethod
-    def event_uri(event_id: str) -> URIRef:
-        return INST[f"event_{event_id}"]
+    def event_uri(event_id: str, match_id: str = "") -> URIRef:
+        prefix = f"{match_id}_" if match_id else ""
+        return INST[f"event_{prefix}{event_id}"]
 
     @staticmethod
     def plays_for_uri(player_id: str, team_id: str, date: str) -> URIRef:

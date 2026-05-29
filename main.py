@@ -53,62 +53,149 @@ CLIP_STEP     = 30
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SCORE-STATE VALIDATION
+# SCORE-STATE VALIDATION (deferred)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def validate_goal_by_score(detection: dict, score_state: dict) -> tuple[bool, dict]:
+class ScoreValidator:
     """
-    Validate a Goal detection against the current score state.
-    Returns (is_valid_goal, updated_score_state).
-
-    Rules:
-    - Score must increment by exactly +1 for the correct team
-    - Score cannot skip or go down
-    - If score not visible (null) → accept Goal (fallback to visual only)
+    Deferred Goal validator.  Goals are queued and only confirmed / rejected
+    once we see the scoreboard change on two consecutive clips.  This avoids
+    false negatives caused by the broadcast overlay showing the pre-goal score
+    for several clips after a goal is actually scored.
     """
-    score_str = detection.get("score")
-    team_side = str(detection.get("team_side", "") or "").lower()
+    TIMEOUT_CLIPS = 6   # clips to wait before trusting VLM visual evidence
+    MAX_SCORE     = 5   # ignore any reading with home or away > MAX_SCORE
 
-    # no scoreboard visible → can't validate, accept
-    if not score_str:
-        return True, score_state
+    def __init__(self):
+        self._trusted      = {"home": 0, "away": 0}  # last locked-in score
+        self._pending      = []   # [{"det", "start_sec", "gametime", "waited"}, …]
+        self._streak_str   = None
+        self._streak_count = 0
 
-    # parse score string "1-0" → (1, 0)
-    try:
-        parts    = score_str.strip().split("-")
-        new_home = int(parts[0])
-        new_away = int(parts[1])
-    except Exception:
-        return True, score_state   # unreadable → accept
+    # ── helpers ──────────────────────────────────────────────────────────────
 
-    home_diff  = new_home - score_state["home"]
-    away_diff  = new_away - score_state["away"]
-    total_diff = home_diff + away_diff
+    def _parse(self, s):
+        """Parse "1-0" → (1, 0).  Returns None if invalid / out of range."""
+        if not s:
+            return None
+        try:
+            parts = s.strip().split("-")
+            h, a  = int(parts[0]), int(parts[1])
+            if h > self.MAX_SCORE or a > self.MAX_SCORE:
+                return None
+            return (h, a)
+        except Exception:
+            return None
 
-    # Rule 1: total score must increase by exactly 1
-    if total_diff != 1:
-        print(f"  [score-gate] REJECTED — score {score_state['home']}-{score_state['away']}"
-              f" → {new_home}-{new_away} (diff={total_diff}, expected 1)")
-        return False, score_state
+    def _try_lock_score(self, score_str):
+        """
+        Return (h, a) if the score is now trusted, else None.
+        Lock-in rules:
+          - same score string seen on 2 consecutive clips
+          - no regression on either side (new >= trusted)
+          - total diff <= 1 (a jump of 2+ means a bad OCR read — ignore)
+        """
+        parsed = self._parse(score_str)
+        if parsed is None:
+            self._streak_str   = None
+            self._streak_count = 0
+            return None
 
-    # Rule 2: score must not go backwards for either team
-    if home_diff < 0 or away_diff < 0:
-        print(f"  [score-gate] REJECTED — score went backwards")
-        return False, score_state
+        h, a = parsed
 
-    # Rule 3: correct team scored (if team_side known)
-    if team_side == "home" and home_diff != 1:
-        print(f"  [score-gate] REJECTED — home team Goal but home score unchanged")
-        return False, score_state
-    if team_side == "away" and away_diff != 1:
-        print(f"  [score-gate] REJECTED — away team Goal but away score unchanged")
-        return False, score_state
+        if score_str == self._streak_str:
+            self._streak_count += 1
+        else:
+            self._streak_str   = score_str
+            self._streak_count = 1
 
-    # ✅ valid
-    new_state = {"home": new_home, "away": new_away}
-    print(f"  [score-gate] CONFIRMED — score {score_state['home']}-{score_state['away']}"
-          f" → {new_home}-{new_away}")
-    return True, new_state
+        if self._streak_count < 2:
+            return None
+
+        # regression guard
+        if h < self._trusted["home"] or a < self._trusted["away"]:
+            return None
+
+        # jump guard
+        total_diff = (h - self._trusted["home"]) + (a - self._trusted["away"])
+        if total_diff > 1:
+            return None
+
+        return (h, a)
+
+    # ── public API ────────────────────────────────────────────────────────────
+
+    def queue(self, det, start_sec, gametime):
+        """Add a Goal detection to the pending queue."""
+        self._pending.append({
+            "det"      : det,
+            "start_sec": start_sec,
+            "gametime" : gametime,
+            "waited"   : 0,
+        })
+
+    def tick(self, score_str):
+        """
+        Call once per clip (even clips with no detected Goal).
+        score_str: first non-null score seen in this clip, or None.
+
+        Returns list of (det, orig_start_sec, orig_gametime, is_goal):
+          is_goal=True  → confirmed, add to buffer as Goal
+          is_goal=False → rejected, add to buffer as Shot
+        """
+        results = []
+
+        # 1. Age all pending entries
+        for entry in self._pending:
+            entry["waited"] += 1
+
+        # 2. Try to lock in the score from this clip
+        locked = self._try_lock_score(score_str)
+
+        # 3. Act on locked score
+        if locked is not None:
+            new_h, new_a   = locked
+            home_diff      = new_h - self._trusted["home"]
+            away_diff      = new_a - self._trusted["away"]
+            total_diff     = home_diff + away_diff
+
+            if total_diff == 1:
+                # find the oldest pending entry whose team_side is compatible
+                match_idx = None
+                for i, entry in enumerate(self._pending):
+                    ts = str(entry["det"].get("team_side", "") or "").lower()
+                    if (ts == ""
+                            or (ts == "home" and home_diff == 1)
+                            or (ts == "away" and away_diff == 1)):
+                        match_idx = i
+                        break
+
+                if match_idx is not None:
+                    entry = self._pending.pop(match_idx)
+                    results.append(
+                        (entry["det"], entry["start_sec"], entry["gametime"], True)
+                    )
+                    self._trusted      = {"home": new_h, "away": new_a}
+                    # reset streak so the next goal needs fresh confirmation
+                    self._streak_str   = None
+                    self._streak_count = 0
+
+            # total_diff == 0 → score unchanged, keep waiting
+
+        # 4. Timeout: trust VLM for entries that have waited long enough
+        still_pending = []
+        for entry in self._pending:
+            if entry["waited"] >= self.TIMEOUT_CLIPS:
+                print(f"  [score-defer] TIMEOUT — trusting VLM Goal at "
+                      f"{entry['gametime']} (waited {entry['waited']} clips)")
+                results.append(
+                    (entry["det"], entry["start_sec"], entry["gametime"], True)
+                )
+            else:
+                still_pending.append(entry)
+        self._pending = still_pending
+
+        return results
 
 REGISTRY_PATH = BASE_DIR / "data" / "kg_output" / "processed_matches.json"
 
@@ -292,8 +379,7 @@ def run_match(
     ingested_cache: list = []   # [(action, video_time_sec), ...]
     CROSS_DEDUP_SEC  = 60.0     # same action within 60s = duplicate
 
-    # score state machine for Goal validation
-    score_state = {"home": 0, "away": 0}
+    score_validator = ScoreValidator()
 
     video_duration = get_video_duration(video_path)
     total_clips    = int((video_duration - clip_duration) / clip_step) + 1
@@ -347,23 +433,33 @@ def run_match(
                                     recent_events=recent_d if recent_d else None)
         t_detect   = time.time() - t_d0
 
-        # apply score-state validation to Goal detections
-        validated_detections = []
+        # extract score from this clip (first non-null reading)
+        clip_score = next((d.get("score") for d in detections if d.get("score")), None)
+
+        # resolve previously queued Goals
+        n_added = 0
+        for rdet, rorig_start, rorig_gametime, is_goal in score_validator.tick(clip_score):
+            if not is_goal:
+                rdet = dict(rdet)
+                rdet["action"]  = "Shot"
+                rdet["outcome"] = rdet.get("outcome") or "on_target"
+                print(f"  [score-defer] REJECTED → Shot at {rorig_gametime}")
+            else:
+                print(f"  [score-defer] CONFIRMED Goal at {rorig_gametime}")
+            n_added += buffer.add_from_detections([rdet], rorig_start, rorig_gametime)
+
+        # route this clip: Goals → queue, everything else → buffer now
         for det in detections:
             if det.get("action") == "Goal":
-                is_valid, score_state = validate_goal_by_score(det, score_state)
-                if not is_valid:
-                    det = dict(det)
-                    det["action"]  = "Shot"
-                    det["outcome"] = det.get("outcome") or "on_target"
-                    print(f"  [score-gate] Goal downgraded to Shot at {det.get('gametime')}")
-            validated_detections.append(det)
+                score_validator.queue(det, start_sec, gametime)
+                print(f"  [score-defer] Goal QUEUED at {det.get('gametime')} — awaiting score")
+            else:
+                n_added += buffer.add_from_detections([det], start_sec, gametime)
 
-        n_added = buffer.add_from_detections(validated_detections, start_sec, gametime)
         delete_clip(clip_path)
 
-        if validated_detections:
-            d          = validated_detections[0]
+        if detections:
+            d          = detections[0]
             jersey_str = f" #{d['jersey']}" if d.get("jersey") else ""
             desc_short = (d.get("description") or "")[:60]
             print(f"  ✓ extract({t_extract:.1f}s) detect({t_detect:.1f}s) → "

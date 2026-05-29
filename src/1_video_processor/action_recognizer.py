@@ -443,6 +443,7 @@ Respond ONLY with this JSON (no markdown, no extra text):
       "foul_type": "tackle" or "handball" or "push" or "shirt_pull" or "trip" or "elbow" or null,
       "team_side": "home" or "away" or null,
       "ball_visible": true or false,
+      "score": "0-0" or "1-0" or "2-1" etc or null,
       "description": "WHO (jersey# and kit color if visible), WHAT action with WHAT technique (left/right foot, header, slide tackle), WHERE on pitch (be specific: top of box, six-yard box, left flank), WHAT HAPPENED immediately after (saved by keeper, hit post, went wide, goal scored). Example: 'Player #7 in blue cuts inside from the right and drives a low right-footed shot from the edge of the penalty area — saved low by the goalkeeper to his left'"
     }
   ]
@@ -453,6 +454,8 @@ outcome applies to Shot and Goal only — set null for all other actions.
 foul_type applies to Foul only — set null for all other actions.
 team_side applies to ALL actions — infer from which team appears to be performing the action.
 ball_visible applies to ALL actions — true if ball is visible in at least one frame.
+score: read the scoreboard overlay if visible — format is "home_goals-away_goals" e.g. "1-0", "2-1". Set null if scoreboard not visible or unreadable.
+score applies to ALL actions — always check the scoreboard overlay in every frame.
 If no action meets the strict criteria above, return: {"actions": []}"""
 
 
@@ -638,6 +641,7 @@ def detect_actions(clip_path: str, clip_start_sec: float = 0.0,
             "foul_type"   : raw.get("foul_type"),
             "team_side"   : raw.get("team_side"),
             "ball_visible": raw.get("ball_visible"),
+            "score"       : raw.get("score"),
             "description" : raw.get("description", ""),
             "video_time"  : video_time,
             "time_in_clip": round(time_in_clip, 1),

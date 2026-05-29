@@ -51,6 +51,65 @@ DATA_DIR      = BASE_DIR / "data"
 CLIP_DURATION = 60
 CLIP_STEP     = 30
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SCORE-STATE VALIDATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+def validate_goal_by_score(detection: dict, score_state: dict) -> tuple[bool, dict]:
+    """
+    Validate a Goal detection against the current score state.
+    Returns (is_valid_goal, updated_score_state).
+
+    Rules:
+    - Score must increment by exactly +1 for the correct team
+    - Score cannot skip or go down
+    - If score not visible (null) → accept Goal (fallback to visual only)
+    """
+    score_str = detection.get("score")
+    team_side = str(detection.get("team_side", "") or "").lower()
+
+    # no scoreboard visible → can't validate, accept
+    if not score_str:
+        return True, score_state
+
+    # parse score string "1-0" → (1, 0)
+    try:
+        parts    = score_str.strip().split("-")
+        new_home = int(parts[0])
+        new_away = int(parts[1])
+    except Exception:
+        return True, score_state   # unreadable → accept
+
+    home_diff  = new_home - score_state["home"]
+    away_diff  = new_away - score_state["away"]
+    total_diff = home_diff + away_diff
+
+    # Rule 1: total score must increase by exactly 1
+    if total_diff != 1:
+        print(f"  [score-gate] REJECTED — score {score_state['home']}-{score_state['away']}"
+              f" → {new_home}-{new_away} (diff={total_diff}, expected 1)")
+        return False, score_state
+
+    # Rule 2: score must not go backwards for either team
+    if home_diff < 0 or away_diff < 0:
+        print(f"  [score-gate] REJECTED — score went backwards")
+        return False, score_state
+
+    # Rule 3: correct team scored (if team_side known)
+    if team_side == "home" and home_diff != 1:
+        print(f"  [score-gate] REJECTED — home team Goal but home score unchanged")
+        return False, score_state
+    if team_side == "away" and away_diff != 1:
+        print(f"  [score-gate] REJECTED — away team Goal but away score unchanged")
+        return False, score_state
+
+    # ✅ valid
+    new_state = {"home": new_home, "away": new_away}
+    print(f"  [score-gate] CONFIRMED — score {score_state['home']}-{score_state['away']}"
+          f" → {new_home}-{new_away}")
+    return True, new_state
+
 REGISTRY_PATH = BASE_DIR / "data" / "kg_output" / "processed_matches.json"
 
 
@@ -233,6 +292,9 @@ def run_match(
     ingested_cache: list = []   # [(action, video_time_sec), ...]
     CROSS_DEDUP_SEC  = 60.0     # same action within 60s = duplicate
 
+    # score state machine for Goal validation
+    score_state = {"home": 0, "away": 0}
+
     video_duration = get_video_duration(video_path)
     total_clips    = int((video_duration - clip_duration) / clip_step) + 1
     if max_clips:
@@ -285,15 +347,27 @@ def run_match(
                                     recent_events=recent_d if recent_d else None)
         t_detect   = time.time() - t_d0
 
-        n_added = buffer.add_from_detections(detections, start_sec, gametime)
+        # apply score-state validation to Goal detections
+        validated_detections = []
+        for det in detections:
+            if det.get("action") == "Goal":
+                is_valid, score_state = validate_goal_by_score(det, score_state)
+                if not is_valid:
+                    det = dict(det)
+                    det["action"]  = "Shot"
+                    det["outcome"] = det.get("outcome") or "on_target"
+                    print(f"  [score-gate] Goal downgraded to Shot at {det.get('gametime')}")
+            validated_detections.append(det)
+
+        n_added = buffer.add_from_detections(validated_detections, start_sec, gametime)
         delete_clip(clip_path)
 
-        if detections:
-            d          = detections[0]
+        if validated_detections:
+            d          = validated_detections[0]
             jersey_str = f" #{d['jersey']}" if d.get("jersey") else ""
             desc_short = (d.get("description") or "")[:60]
             print(f"  ✓ extract({t_extract:.1f}s) detect({t_detect:.1f}s) → "
-                  f"{d['action']}{jersey_str} conf={d['confidence']:.2f}")
+                  f"{d['action']}{jersey_str}")
             if desc_short:
                 print(f"    \"{desc_short}...\"")
             print(f"    [+{n_added} to buffer]")

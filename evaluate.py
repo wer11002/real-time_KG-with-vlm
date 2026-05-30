@@ -129,14 +129,14 @@ def load_kg_events(ttl_path: Path, match_filter: str = None) -> list:
             line = line.rstrip()
             stripped = line.strip()
 
-            # new event block — starts with data:event_NNNN
-            if re.match(r"data:event_\d+\s+a\s+", stripped):
+            # new event block — starts with data:event_<any-id>
+            if re.match(r"data:event_\S+\s+a\s+", stripped):
                 flush(current)
                 current = {"is_pending": True, "matched": False}
                 continue
 
             # new non-event block → flush and clear
-            if re.match(r"data:\S+\s+a\s+", stripped) and not re.match(r"data:event_\d+", stripped):
+            if re.match(r"data:\S+\s+a\s+", stripped) and not re.match(r"data:event_\S+", stripped):
                 flush(current)
                 current = {}
                 continue
@@ -418,7 +418,7 @@ def print_verbose(results: dict):
                   f"{player:<28} [{g['source']}]")
 
 
-def print_pipeline_summary(events: list, gt: list):
+def print_pipeline_summary(events: list, gt: list, match_filter: str = ""):
     total   = len(events)
     matched = sum(1 for e in events if e.get("matched"))
     counts  = Counter(e["action"] for e in events)
@@ -480,7 +480,7 @@ def main(args):
     for action in sorted(KEY_ACTIONS):
         print(f"    {action:<12} {gt_counts.get(action,0):>3}")
 
-    print_pipeline_summary(kg_events, gt)
+    print_pipeline_summary(kg_events, gt, match_filter=match_filter)
 
     # eval 1: all pipeline events
     r_all = evaluate(kg_events, gt,

@@ -58,138 +58,109 @@ CLIP_STEP     = 30
 
 class ScoreValidator:
     """
-    Deferred Goal validator.  Goals are queued and only confirmed / rejected
-    once we see the scoreboard change on two consecutive clips.  This avoids
-    false negatives caused by the broadcast overlay showing the pre-goal score
-    for several clips after a goal is actually scored.
+    Deferred Goal validator backed by the ESPN scraper score.
+    Goals are queued; each clip we query ESPN to see whether the score
+    has incremented.  If yes → confirm.  If no change within
+    REJECT_AFTER_MIN minutes → reject (downgrade to Shot).
     """
-    TIMEOUT_CLIPS = 6   # clips to wait before trusting VLM visual evidence
-    MAX_SCORE     = 5   # ignore any reading with home or away > MAX_SCORE
+    REJECT_AFTER_MIN = 2.0   # minutes after queuing before rejecting unconfirmed goals
 
-    def __init__(self):
-        self._trusted      = {"home": 0, "away": 0}  # last locked-in score
-        self._pending      = []   # [{"det", "start_sec", "gametime", "waited"}, …]
-        self._streak_str   = None
-        self._streak_count = 0
+    def __init__(self, scraper, team1: str, team2: str):
+        self._scraper    = scraper
+        self._team1      = team1   # home team name
+        self._team2      = team2   # away team name
+        self._last_score = {"home": 0, "away": 0}
+        self._pending    = []      # [{det, start_sec, gametime, queued_minute, waited}]
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
-    def _parse(self, s):
-        """Parse "1-0" → (1, 0).  Returns None if invalid / out of range."""
-        if not s:
-            return None
-        try:
-            parts = s.strip().split("-")
-            h, a  = int(parts[0]), int(parts[1])
-            if h > self.MAX_SCORE or a > self.MAX_SCORE:
-                return None
-            return (h, a)
-        except Exception:
-            return None
-
-    def _try_lock_score(self, score_str):
+    def _get_espn_score(self, minute: float) -> dict:
         """
-        Return (h, a) if the score is now trusted, else None.
-        Lock-in rules:
-          - same score string seen on 2 consecutive clips
-          - no regression on either side (new >= trusted)
-          - total diff <= 1 (a jump of 2+ means a bad OCR read — ignore)
+        Count ESPN goals up to `minute` and return {"home": int, "away": int}.
+        Uses skip_consumed=False so already-consumed events are still counted.
         """
-        parsed = self._parse(score_str)
-        if parsed is None:
-            self._streak_str   = None
-            self._streak_count = 0
-            return None
+        if self._scraper is None:
+            return dict(self._last_score)
 
-        h, a = parsed
-
-        if score_str == self._streak_str:
-            self._streak_count += 1
-        else:
-            self._streak_str   = score_str
-            self._streak_count = 1
-
-        if self._streak_count < 2:
-            return None
-
-        # regression guard
-        if h < self._trusted["home"] or a < self._trusted["away"]:
-            return None
-
-        # jump guard
-        total_diff = (h - self._trusted["home"]) + (a - self._trusted["away"])
-        if total_diff > 1:
-            return None
-
-        return (h, a)
+        home, away = 0, 0
+        for ev in self._scraper.get_events_up_to(minute, skip_consumed=False):
+            if ev.get("action") not in ("Goal",):
+                continue
+            team = (ev.get("team") or "").strip()
+            if not team:
+                continue
+            t1, t2 = self._team1.lower(), self._team2.lower()
+            tl     = team.lower()
+            if t1 in tl or tl in t1:
+                home += 1
+            elif t2 in tl or tl in t2:
+                away += 1
+        return {"home": home, "away": away}
 
     # ── public API ────────────────────────────────────────────────────────────
 
-    def queue(self, det, start_sec, gametime):
+    def queue(self, det: dict, start_sec: float, gametime: str,
+              current_minute: float) -> None:
         """Add a Goal detection to the pending queue."""
         self._pending.append({
-            "det"      : det,
-            "start_sec": start_sec,
-            "gametime" : gametime,
-            "waited"   : 0,
+            "det"           : det,
+            "start_sec"     : start_sec,
+            "gametime"      : gametime,
+            "queued_minute" : current_minute,
+            "waited"        : 0,
         })
 
-    def tick(self, score_str):
+    def tick(self, current_minute: float) -> list[tuple[dict, float, str, bool]]:
         """
-        Call once per clip (even clips with no detected Goal).
-        score_str: first non-null score seen in this clip, or None.
-
-        Returns list of (det, orig_start_sec, orig_gametime, is_goal):
-          is_goal=True  → confirmed, add to buffer as Goal
-          is_goal=False → rejected, add to buffer as Shot
+        Call once per clip with the current match minute (start_sec / 60.0).
+        Returns list of (det, orig_start_sec, orig_gametime, is_goal).
         """
         results = []
+
+        # no pending goals → nothing to do
+        if not self._pending and self._scraper is None:
+            return results
 
         # 1. Age all pending entries
         for entry in self._pending:
             entry["waited"] += 1
 
-        # 2. Try to lock in the score from this clip
-        locked = self._try_lock_score(score_str)
+        # 2. Query ESPN score at current minute
+        espn_score = self._get_espn_score(current_minute)
+        home_diff  = espn_score["home"] - self._last_score["home"]
+        away_diff  = espn_score["away"] - self._last_score["away"]
+        total_diff = home_diff + away_diff
 
-        # 3. Act on locked score
-        if locked is not None:
-            new_h, new_a   = locked
-            home_diff      = new_h - self._trusted["home"]
-            away_diff      = new_a - self._trusted["away"]
-            total_diff     = home_diff + away_diff
+        # 3. Score sanity: ignore regressions or jumps > 1
+        if home_diff >= 0 and away_diff >= 0 and total_diff == 1:
+            # ESPN confirms a goal scored — find oldest compatible pending entry
+            match_idx = None
+            for i, entry in enumerate(self._pending):
+                ts = str(entry["det"].get("team_side", "") or "").lower()
+                if (ts == ""
+                        or (ts == "home" and home_diff == 1)
+                        or (ts == "away" and away_diff == 1)):
+                    match_idx = i
+                    break
 
-            if total_diff == 1:
-                # find the oldest pending entry whose team_side is compatible
-                match_idx = None
-                for i, entry in enumerate(self._pending):
-                    ts = str(entry["det"].get("team_side", "") or "").lower()
-                    if (ts == ""
-                            or (ts == "home" and home_diff == 1)
-                            or (ts == "away" and away_diff == 1)):
-                        match_idx = i
-                        break
-
-                if match_idx is not None:
-                    entry = self._pending.pop(match_idx)
-                    results.append(
-                        (entry["det"], entry["start_sec"], entry["gametime"], True)
-                    )
-                    self._trusted      = {"home": new_h, "away": new_a}
-                    # reset streak so the next goal needs fresh confirmation
-                    self._streak_str   = None
-                    self._streak_count = 0
-
-            # total_diff == 0 → score unchanged, keep waiting
-
-        # 4. Timeout: trust VLM for entries that have waited long enough
-        still_pending = []
-        for entry in self._pending:
-            if entry["waited"] >= self.TIMEOUT_CLIPS:
-                print(f"  [score-defer] TIMEOUT — trusting VLM Goal at "
-                      f"{entry['gametime']} (waited {entry['waited']} clips)")
+            if match_idx is not None:
+                entry = self._pending.pop(match_idx)
+                self._last_score = dict(espn_score)
+                print(f"  [score-defer] CONFIRMED Goal at {entry['gametime']} "
+                      f"(ESPN score now {espn_score['home']}-{espn_score['away']})")
                 results.append(
                     (entry["det"], entry["start_sec"], entry["gametime"], True)
+                )
+
+        # 4. Reject entries that have waited too long without a score change
+        still_pending = []
+        for entry in self._pending:
+            age = current_minute - entry["queued_minute"]
+            if age >= self.REJECT_AFTER_MIN:
+                print(f"  [score-defer] REJECTED Goal at {entry['gametime']} "
+                      f"(no ESPN score change after {age:.1f} min)")
+                results.append(
+                    (entry["det"], entry["start_sec"], entry["gametime"], False)
                 )
             else:
                 still_pending.append(entry)
@@ -198,14 +169,10 @@ class ScoreValidator:
         return results
 
     def flush_all(self) -> list[tuple[dict, float, str, bool]]:
-        """
-        Force-resolve all remaining pending goals at end of match.
-        All are downgraded to Shot (is_goal=False).
-        """
+        """End of match: reject all remaining pending goals as Shot."""
         results = []
         for p in self._pending:
-            print(f"  [score-defer] END-OF-MATCH — Goal downgraded to Shot at "
-                  f"{p['gametime']} (never confirmed by scoreboard)")
+            print(f"  [score-defer] END-OF-MATCH → Shot at {p['gametime']}")
             results.append((p["det"], p["start_sec"], p["gametime"], False))
         self._pending = []
         return results
@@ -392,7 +359,7 @@ def run_match(
     ingested_cache: list = []   # [(action, video_time_sec), ...]
     CROSS_DEDUP_SEC  = 60.0     # same action within 60s = duplicate
 
-    score_validator = ScoreValidator()
+    score_validator = ScoreValidator(scraper, team1, team2)
 
     video_duration = get_video_duration(video_path)
     total_clips    = int((video_duration - clip_duration) / clip_step) + 1
@@ -446,12 +413,10 @@ def run_match(
                                     recent_events=recent_d if recent_d else None)
         t_detect   = time.time() - t_d0
 
-        # extract score from this clip (first non-null reading)
-        clip_score = next((d.get("score") for d in detections if d.get("score")), None)
-
-        # resolve previously queued Goals
+        # resolve previously queued Goals against current ESPN score
+        current_minute = start_sec / 60.0
         n_added = 0
-        for rdet, rorig_start, rorig_gametime, is_goal in score_validator.tick(clip_score):
+        for rdet, rorig_start, rorig_gametime, is_goal in score_validator.tick(current_minute):
             if not is_goal:
                 rdet = dict(rdet)
                 rdet["action"]  = "Shot"
@@ -464,7 +429,7 @@ def run_match(
         # route this clip: Goals → queue, everything else → buffer now
         for det in detections:
             if det.get("action") == "Goal":
-                score_validator.queue(det, start_sec, gametime)
+                score_validator.queue(det, start_sec, gametime, start_sec / 60.0)
                 print(f"  [score-defer] Goal QUEUED at {det.get('gametime')} — awaiting score")
             else:
                 n_added += buffer.add_from_detections([det], start_sec, gametime)
@@ -562,10 +527,12 @@ def run_match(
 
             print(f"  {'▲'*30}\n")
 
-    # flush any Goals still pending at end of match — log only, not ingested
-    # (buffer already flushed; these are almost certainly false positives)
-    for _, _, rorig_gametime, _ in score_validator.flush_all():
-        print(f"  [score-defer] END-OF-MATCH Shot logged at {rorig_gametime} (not ingested)")
+    # flush any Goals still pending at end of match → downgrade to Shot
+    for rdet, rorig_start, rorig_gametime, is_goal in score_validator.flush_all():
+        rdet = dict(rdet)
+        rdet["action"]  = "Shot"
+        rdet["outcome"] = rdet.get("outcome") or "on_target"
+        buffer.add_from_detections([rdet], rorig_start, rorig_gametime)
 
     ekg.save(TTL_PATH)
     elapsed = time.time() - t0

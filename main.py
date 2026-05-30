@@ -133,15 +133,11 @@ class ScoreValidator:
 
         # 3. Score sanity: ignore regressions or jumps > 1
         if home_diff >= 0 and away_diff >= 0 and total_diff == 1:
-            # ESPN confirms a goal scored — find oldest compatible pending entry
+            # ESPN confirms a goal — confirm oldest pending regardless of team_side
+            # (VLM team_side is unreliable for Goals; trust ESPN score increment)
             match_idx = None
-            for i, entry in enumerate(self._pending):
-                ts = str(entry["det"].get("team_side", "") or "").lower()
-                if (ts == ""
-                        or (ts == "home" and home_diff == 1)
-                        or (ts == "away" and away_diff == 1)):
-                    match_idx = i
-                    break
+            if self._pending:
+                match_idx = 0
 
             if match_idx is not None:
                 entry = self._pending.pop(match_idx)

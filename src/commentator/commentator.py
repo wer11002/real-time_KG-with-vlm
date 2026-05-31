@@ -387,6 +387,30 @@ def _execute_tool(name: str, args: dict, ttl_path: str) -> str:
         return json.dumps({"error": str(e)})
 
 
+def _resolve_uris(event, ttl_path: str) -> tuple[str | None, str | None]:
+    """
+    Look up the event URI and match URI from ekg.ttl using
+    hasTime + hasEventType as the key. Returns (event_uri, match_uri).
+    """
+    gametime    = getattr(event, "gametime", None)
+    action_type = getattr(event, "action",   None)
+    if not gametime or not action_type:
+        return None, None
+    g = _load(ttl_path)
+    q = """
+    PREFIX ekg: <http://soccerekg.org/ontology#>
+    SELECT ?e ?match WHERE {
+        ?e ekg:hasTime      "%s" ;
+           ekg:hasEventType "%s" ;
+           ekg:IN_MATCH     ?match .
+    }
+    LIMIT 1
+    """ % (gametime, action_type)
+    for r in g.query(q):
+        return str(r.e), str(r.match)
+    return None, None
+
+
 def agent_commentate(event, ttl_path: str) -> str:
     """
     Tool-calling agent loop.  Sends messages to localhost:8001 and
@@ -397,8 +421,7 @@ def agent_commentate(event, ttl_path: str) -> str:
     gametime   = getattr(event, "gametime", "?")
     player     = getattr(event, "player",   None)
     team_side  = getattr(event, "team_side", None)
-    event_uri  = getattr(event, "event_uri", None)
-    match_uri  = getattr(event, "match_uri", None)
+    event_uri, match_uri = _resolve_uris(event, ttl_path)
     description = getattr(event, "description", "") or ""
 
     suggested = _suggested_tools(action)

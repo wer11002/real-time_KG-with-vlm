@@ -33,6 +33,7 @@ sys.path.insert(0, str(BASE_DIR / "src" / "1_video_processor"))
 sys.path.insert(0, str(BASE_DIR / "src" / "2_web_scraper"))
 sys.path.insert(0, str(BASE_DIR / "src" / "3_buffer_matcher"))
 sys.path.insert(0, str(BASE_DIR / "src" / "4_kg_builder"))
+sys.path.insert(0, str(BASE_DIR / "src" / "commentator"))
 
 from sliding_window    import (
     extract_clip, get_video_duration, seconds_to_gametime,
@@ -46,6 +47,7 @@ from align             import align_buffer, summarize
 from kg_builder        import (
     EKG_Graph, ingest_matched_event, prepopulate_roster, TTL_PATH, clear_stream
 )
+from commentator       import event_queue, start_commentator
 
 DATA_DIR      = BASE_DIR / "data"
 CLIP_DURATION = 60
@@ -508,6 +510,7 @@ def run_match(
                         team_side    = m.team_side,
                         ball_visible = m.ball_visible,
                     )
+                    event_queue.put_nowait(m)
                     method = f"[{m.match_method}]"
                     player = m.player if m.matched else "?"
                     jersey = f" #{m.jersey}" if m.jersey else ""
@@ -594,6 +597,8 @@ def run_pipeline(
 
     clear_stream()
     print(f"  [viz] event stream cleared → data/kg_output/events_stream.jsonl")
+
+    start_commentator("data/kg_output/ekg.ttl")
 
     print(f"\n  Loading Qwen3-VL model (once, shared across all matches)...")
     load_model()

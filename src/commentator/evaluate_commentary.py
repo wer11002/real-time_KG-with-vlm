@@ -113,20 +113,33 @@ def metric_c_bert(refs, hyps):
 
 # ── Parse ESPN CSV ────────────────────────────────────────────────────────
 
-def parse_espn_csv(path):
-    import csv
+def parse_espn_csv(path: str) -> list[dict]:
+    """
+    Real CSV columns: Time, Player, Team, Action_Type,
+                      Yellow_Card, Red_Card, Full_Text
+    Time is a float in minutes (e.g. 63.5 = 63rd minute).
+    """
+    import csv as _csv
     rows = []
-    with open(path) as f:
-        for row in csv.DictReader(f):
+    with open(path, encoding="utf-8") as f:
+        for row in _csv.DictReader(f):
+            raw_time = row.get("Time", "0").strip()
+            try:
+                t = float(raw_time)
+            except ValueError:
+                continue
+            action = row.get("Action_Type", "").strip()
+            if not action or action == "None":
+                continue
             rows.append({
-                "half"       : int(row.get("half", 1)),
-                "minute"     : float(row.get("minute", 0)),
-                "event_type" : row.get("event_type", "").strip(),
-                "player"     : row.get("player", "").strip(),
-                "team"       : row.get("team", "").strip(),
-                "description": row.get("description", "").strip(),
+                "minute"     : t,
+                "half"       : 1 if t <= 45 else 2,
+                "event_type" : action,
+                "player"     : row.get("Player", "").strip(),
+                "team"       : row.get("Team",   "").strip(),
+                "description": row.get("Full_Text", "").strip(),
             })
-    return rows
+    return sorted(rows, key=lambda r: r["minute"])
 
 
 # ── Full ESPN coverage analysis ────────────────────────────────────────────
@@ -138,15 +151,20 @@ def full_coverage_analysis(espn_events, ai_events, tol_min=1.5):
     Returns per-type breakdown + overall stats.
     """
     TYPE_MAP = {
-        "goal"        : "Goal",
-        "attempt"     : "Shot",
+        "Shot"        : "Shot",
+        "Goal"        : "Goal",
+        "Corner"      : "Corner",
+        "Foul"        : "Foul",
+        "Free_Kick"   : "Free_Kick",
+        "Substitution": "Substitution",
+        "Offside"     : "Offside",
         "shot"        : "Shot",
+        "goal"        : "Goal",
         "corner"      : "Corner",
         "foul"        : "Foul",
+        "free_kick"   : "Free_Kick",
         "substitution": "Substitution",
         "offside"     : "Offside",
-        "yellow card" : "Foul",
-        "free kick"   : "Free_Kick",
     }
 
     type_stats = {}

@@ -413,11 +413,11 @@ def _create_event_node(
     if last_event is not None:
         last_event[match_id] = event_id
 
-    # INVOLVED_IN
+    # INVOLVED_IN — event is subject, team is object
     if team_id:
         team_uri = ekg.team_uri(team_id)
-        ekg.g.add((team_uri, EKG.INVOLVED_IN, event_uri))
-        new_edges.append(f"{team_id} --[INVOLVED_IN]--> event_{event_id}")
+        ekg.g.add((event_uri, EKG.INVOLVED_IN, team_uri))
+        new_edges.append(f"event_{event_id} --[INVOLVED_IN]--> {team_id}")
 
     # PERFORMED + its inverse IS_PERFORMED_BY
     if player_id:
@@ -567,6 +567,10 @@ def ingest_matched_event(
     else:
         player_id = None
         team_id   = get_or_create_team(matched.team, ekg) if matched.team else None
+
+    if team_id is None:
+        print(f"  [kg] WARNING: team_id=None for {matched.action} at {matched.gametime} "
+              f"(matched.team={matched.team!r}) — INVOLVED_IN will be skipped")
 
     event_id, edges = _create_event_node(
         ekg, match_id, time_raw,

@@ -172,9 +172,16 @@ def match_by_jersey(
                 best_diff  = diff
                 espn_match = e
 
+    # Upgrade Shot→Goal if ESPN confirms Goal; never downgrade
+    final_action = video_action
+    if espn_match and video_action == "Shot" and espn_match.get("action") == "Goal":
+        final_action = "Goal"
+        print(f"  [align] Shot→Goal upgrade at {video_event['gametime']} "
+              f"(ESPN confirms Goal)")
+
     return MatchedEvent(
         video_time   = video_event["video_time"],
-        action       = video_action,
+        action       = final_action,
         confidence   = video_event["confidence"],
         gametime     = video_event["gametime"],
         matched      = True,
@@ -254,9 +261,16 @@ def match_by_time(
     candidates.sort(key=lambda x: x[0])
     best_diff, best = candidates[0]
 
+    # Upgrade Shot→Goal if ESPN confirms Goal; never downgrade
+    final_action = video_action
+    if video_action == "Shot" and best.get("action") == "Goal":
+        final_action = "Goal"
+        print(f"  [align] Shot→Goal upgrade at {video_event['gametime']} "
+              f"(ESPN confirms Goal)")
+
     return MatchedEvent(
         video_time   = video_event["video_time"],
-        action       = video_action,
+        action       = final_action,
         confidence   = video_event["confidence"],
         gametime     = video_event["gametime"],
         matched      = True,

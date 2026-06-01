@@ -866,8 +866,7 @@ def build_neighborhood_graph(g, center_uri: str) -> str:
             f'color:{{background:"{bg}",border:"rgba(255,255,255,0.3)",'
             f'highlight:{{background:"{bg}",border:"#fff"}}}},'
             f'font:{{color:"#fff",size:13,face:"Inter,sans-serif",bold:true}},'
-            f'shape:"dot",size:28,title:"{js_str(u)}",'
-            f'borderWidth:2,shadow:{{enabled:true,size:10,x:3,y:3,color:"rgba(0,0,0,0.4)}}"}}}'
+            f'shape:"dot",size:28,title:"{js_str(u)}",borderWidth:2}}'
         )
 
     EDGE_C = {

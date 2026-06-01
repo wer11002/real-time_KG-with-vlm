@@ -572,6 +572,27 @@ def node_label(g, uri: URIRef) -> str:
     return s
 
 
+CLASS_LEVELS = {
+    "Match"             : 0,
+    "Team"              : 1,
+    "Player"            : 2,
+    "ActionEvent"       : 3,
+    "Event"             : 3,
+    "GoalEvent"         : 4,
+    "ShotEvent"         : 4,
+    "FoulEvent"         : 4,
+    "CornerEvent"       : 4,
+    "FreeKickEvent"     : 4,
+    "SubstitutionEvent" : 4,
+    "OffsideEvent"      : 4,
+    "PassEvent"         : 4,
+    "PenaltyEvent"      : 4,
+    "CardEvent"         : 5,
+    "YellowCardEvent"   : 6,
+    "RedCardEvent"      : 6,
+}
+
+
 def build_pyvis(g, mode: str, max_nodes: int) -> str:
     try:
         from pyvis.network import Network
@@ -620,21 +641,21 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
       "enabled": true,
       "direction": "UD",
       "sortMethod": "directed",
-      "levelSeparation": 120,
-      "nodeSpacing": 140
+      "levelSeparation": 130,
+      "nodeSpacing": 150
     }
   },
-  "physics": {
-    "enabled": false
-  }
+  "physics": { "enabled": false }
 }
 """)
         for cls in ekg_classes(g):
+            lbl = short(cls)
             add_node(cls,
-                     label=short(cls),
-                     color=NODE_COLORS.get(short(cls), "#7FB3D3"),
+                     label=lbl,
+                     color=NODE_COLORS.get(lbl, "#7FB3D3"),
                      size=22,
-                     shape="box")
+                     shape="box",
+                     level=CLASS_LEVELS.get(lbl, 4))
         for cls in ekg_classes(g):
             for parent in g.objects(cls, RDFS.subClassOf):
                 if isinstance(parent, URIRef) and str(parent).startswith(EKG_NS):
@@ -647,7 +668,14 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
             for d in doms:
                 for r in rngs:
                     if isinstance(d, URIRef) and isinstance(r, URIRef):
-                        add_edge(d, r, short(prop), "#4A90D9")
+                        is_trigger = short(prop) == "TRIGGERED"
+                        net.add_edge(str(d), str(r),
+                                     label=short(prop),
+                                     color="#F39C12" if is_trigger else "#4A90D9",
+                                     dashes=is_trigger,
+                                     arrows="to",
+                                     width=1.5,
+                                     font={"size": 9, "color": "#555555"})
 
     # ── INSTANCE mode — A-Box data ───────────────────────────────────────────
     else:

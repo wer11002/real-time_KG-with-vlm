@@ -1,21 +1,28 @@
 """
 generate_ground_truth_commentary.py
 ─────────────────────────────────────
-Generates contextual ground-truth commentary from Labels-ball.json using
-Qwen3-VL-30B in text-only mode (no images).
+Generates ground-truth commentary from the ESPN CSV using Qwen3-VL-30B
+in text-only mode.
+
+Each event gets a broadcast sentence that is:
+  - Factually anchored to the ESPN Full_Text (player, action, outcome)
+  - Contextually aware of the last 5 events ("just after the corner",
+    "his second attempt in five minutes")
+
+Output saved as data/<match>/ground_truth_commentary.json — same format
+as human_commentary.json so evaluate_commentary.py can consume it directly.
 
 Usage:
-    # Peek at Labels-ball.json schema before running anything
-    python src/commentator/generate_ground_truth_commentary.py --peek
+    python src/commentator/generate_ground_truth_commentary.py \\
+        --csv data/blackburn_forest_2019-10-01.csv \\
+        --match "Blackburn Rovers vs Nottingham Forest"
 
-    # Single match (partial name ok)
-    python src/commentator/generate_ground_truth_commentary.py --match "Blackburn"
-
-    # All matches under data/
+    # Generate for all CSVs found under data/
     python src/commentator/generate_ground_truth_commentary.py --all
 """
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
@@ -25,140 +32,53 @@ DATA_DIR  = BASE_DIR / "data"
 
 MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 
-KEY_LABELS = {"SHOT", "GOAL", "CORNER", "FREEKICK", "PENALTY"}
+# Event types we generate commentary for (skip substitutions/offsides for brevity)
+COMMENTARY_TYPES = {"Shot", "Goal", "Corner", "Free_Kick", "Foul"}
 
-# Map SoccerNet label → output event_type
-LABEL_TO_TYPE = {
-    "SHOT"    : "Shot",
-    "GOAL"    : "Goal",
-    "CORNER"  : "Corner",
-    "FREEKICK": "Free_Kick",
-    "PENALTY" : "Penalty",
-}
+SYSTEM_PROMPT = (
+    "You are a live football match commentator on British TV. "
+    "Write exactly ONE sentence of natural broadcast commentary for the current event. "
+    "Rules:\n"
+    "1. Use the ESPN description as your factual source — do not invent new facts.\n"
+    "2. Reference recent history when natural: 'another attempt', "
+    "'just minutes after the corner', 'following the free kick'.\n"
+    "3. Vary your language — avoid repeating the same opener.\n"
+    "4. Be concise and vivid. One sentence only.\n"
+    "5. Always respond in English only."
+)
 
 
-# ── Data discovery ──────────────────────────────────────────────────────────
+# ── ESPN CSV parser ─────────────────────────────────────────────────────────
 
-def find_match_folders() -> list[Path]:
+def parse_espn_csv(path: str) -> list[dict]:
     """
-    Return all match folders that contain a Labels-ball.json.
-    Handles two layouts:
-      - data/<match>/Labels-ball.json  (flat)
-      - data/<league>/<season>/<match>/Labels-ball.json  (nested)
+    Columns: Time, Player, Team, Action_Type, Yellow_Card, Red_Card, Full_Text
+    Time has trailing apostrophe e.g. "63'" → strip it → float.
     """
-    found = []
-    for p in DATA_DIR.rglob("Labels-ball.json"):
-        found.append(p.parent)
-    return sorted(set(found))
+    rows = []
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            raw_time = row.get("Time", "0").strip().rstrip("'")
+            try:
+                t = float(raw_time)
+            except ValueError:
+                continue
+            action = row.get("Action_Type", "").strip()
+            if not action or action == "None":
+                continue
+            rows.append({
+                "minute"     : t,
+                "half"       : 1 if t <= 45 else 2,
+                "half_minute": t if t <= 45 else t - 45,
+                "event_type" : action,
+                "player"     : row.get("Player", "").strip(),
+                "team"       : row.get("Team",   "").strip(),
+                "full_text"  : row.get("Full_Text", "").strip(),
+            })
+    return sorted(rows, key=lambda r: r["minute"])
 
 
-def find_match(name_fragment: str) -> Path:
-    folders = find_match_folders()
-    hits = [f for f in folders if name_fragment.lower() in f.name.lower()]
-    if not hits:
-        print(f"No match folder found containing '{name_fragment}'")
-        print("Available folders:")
-        for f in folders:
-            print(f"  {f}")
-        sys.exit(1)
-    if len(hits) > 1:
-        print(f"Ambiguous — {len(hits)} folders match '{name_fragment}':")
-        for h in hits:
-            print(f"  {h}")
-        sys.exit(1)
-    return hits[0]
-
-
-# ── Labels-ball.json parsing ────────────────────────────────────────────────
-
-def parse_game_time(game_time: str) -> tuple[int, int, int]:
-    """
-    "1 - 03:27"  →  (half=1, minute=3, second=27)
-    "2 - 07:12"  →  (half=2, minute=7, second=12)
-    """
-    try:
-        half_str, time_str = game_time.split(" - ", 1)
-        half = int(half_str.strip())
-        mins, secs = time_str.strip().split(":")
-        return half, int(mins), int(secs)
-    except Exception:
-        return 1, 0, 0
-
-
-def to_abs_second(half: int, minute: int, second: int) -> int:
-    return (half - 1) * 45 * 60 + minute * 60 + second
-
-
-def load_annotations(labels_path: Path) -> list[dict]:
-    """
-    Parse Labels-ball.json and return sorted key events.
-    Infers Goals: a SHOT with no SAVE annotation within 5 s is treated as Goal
-    only when no explicit GOAL label exists.
-    """
-    with open(labels_path, encoding="utf-8") as f:
-        data = json.load(f)
-
-    # Accept both top-level key variants
-    anns = data.get("annotations") or data.get("events") or []
-
-    # Normalise label to uppercase for comparison
-    raw = []
-    for a in anns:
-        label = str(a.get("label", "")).strip().upper().replace(" ", "")
-        game_time = a.get("gameTime", a.get("game_time", ""))
-        half, minute, second = parse_game_time(game_time)
-        raw.append({
-            "label"     : label,
-            "half"      : half,
-            "minute"    : minute,
-            "second"    : second,
-            "abs_second": to_abs_second(half, minute, second),
-            "team"      : a.get("team", "home"),
-            "visibility": a.get("visibility", "visible"),
-        })
-
-    # Check for explicit GOAL annotations
-    has_explicit_goal = any(r["label"] == "GOAL" for r in raw)
-
-    # Collect SAVE timestamps to filter out SHOT→Goal inference
-    save_times = {r["abs_second"] for r in raw if r["label"] == "SAVE"}
-
-    events = []
-    for r in raw:
-        label = r["label"]
-        if label not in KEY_LABELS:
-            continue
-
-        # Infer Goal from Shot when no explicit Goals exist
-        if label == "SHOT" and not has_explicit_goal:
-            nearby_save = any(
-                abs(r["abs_second"] - s) <= 5 for s in save_times
-            )
-            if not nearby_save:
-                label = "GOAL"
-
-        events.append({**r, "label": label})
-
-    events.sort(key=lambda e: e["abs_second"])
-    return events
-
-
-# ── Commentary history ──────────────────────────────────────────────────────
-
-def format_history(events: list[dict], current_idx: int) -> str:
-    start = max(0, current_idx - 5)
-    past  = events[start:current_idx]
-    lines = []
-    for e in past:
-        half_str = "1H" if e["half"] == 1 else "2H"
-        lines.append(
-            f"[{e['minute']:02d}:{e['second']:02d}] {half_str} "
-            f"{e['label']} ({e['team']})"
-        )
-    return "\n".join(lines) if lines else "No prior events."
-
-
-# ── Qwen model (lazy-loaded once) ──────────────────────────────────────────
+# ── Model (lazy-loaded once) ────────────────────────────────────────────────
 
 _model     = None
 _processor = None
@@ -172,7 +92,7 @@ def _load_model():
     import torch
     from transformers import Qwen3VLMoeForConditionalGeneration, AutoProcessor
 
-    print(f"Loading {MODEL_ID} (text-only)...")
+    print(f"Loading {MODEL_ID} (text-only)…")
     _processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
     _model     = Qwen3VLMoeForConditionalGeneration.from_pretrained(
         MODEL_ID,
@@ -185,33 +105,10 @@ def _load_model():
     return _model, _processor
 
 
-def generate_commentary(match_name: str, event: dict, history: str) -> str:
+def _generate(messages: list[dict]) -> str:
     import torch
-
     model, processor = _load_model()
 
-    half_str  = "1st" if event["half"] == 1 else "2nd"
-    team_side = "the home side" if event["team"] == "home" else "the away side"
-
-    system = (
-        "You are a football match commentator. Write exactly ONE sentence "
-        "of natural commentary. Reference past events when relevant "
-        "(e.g. 'his second attempt', 'just minutes after the corner'). "
-        "Never invent player names — say 'the home side' or 'the away side'. "
-        "Always respond in English only."
-    )
-    user = (
-        f"Match: {match_name}\n"
-        f"History (last 5 events):\n{history}\n"
-        f"Current event: [{event['minute']:02d}:{event['second']:02d}] "
-        f"{half_str} half — {event['label']} by {team_side}\n"
-        f"Write one sentence of commentary."
-    )
-
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user",   "content": user},
-    ]
     text   = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True)
     inputs = processor(text=[text], return_tensors="pt").to(model.device)
@@ -219,109 +116,187 @@ def generate_commentary(match_name: str, event: dict, history: str) -> str:
     with torch.no_grad():
         out = model.generate(**inputs, max_new_tokens=80)
 
-    response = processor.decode(
+    return processor.decode(
         out[0][inputs.input_ids.shape[1]:],
         skip_special_tokens=True,
     ).strip()
-    return response
 
 
-# ── Per-match processing ────────────────────────────────────────────────────
+# ── History builder ─────────────────────────────────────────────────────────
 
-def process_match(folder: Path):
-    labels_path = folder / "Labels-ball.json"
-    if not labels_path.exists():
-        print(f"  [skip] No Labels-ball.json in {folder.name}")
-        return
+def _format_history(past_events: list[dict]) -> str:
+    """
+    Format the last N events as a bullet list for the Qwen prompt.
+    Each line: "63' 2H  GOAL  Adam Armstrong (Blackburn Rovers) — 'Armstrong fires...' "
+    """
+    lines = []
+    for e in past_events[-5:]:
+        half_str = "1H" if e["half"] == 1 else "2H"
+        snippet  = e["full_text"][:120].rstrip(".") if e["full_text"] else "—"
+        lines.append(
+            f"  {int(e['minute'])}' {half_str}  {e['event_type']:<10} "
+            f"{e['player'] or '?'} ({e['team'] or '?'}) — \"{snippet}\""
+        )
+    return "\n".join(lines) if lines else "  (no prior events)"
 
-    match_name = folder.name
-    print(f"\n{'─'*60}")
+
+# ── Commentary generation ───────────────────────────────────────────────────
+
+def generate_commentary(event: dict, history: list[dict], match_name: str) -> str:
+    half_str = "1st" if event["half"] == 1 else "2nd"
+    hist_str = _format_history(history)
+
+    user = (
+        f"Match: {match_name}\n\n"
+        f"Recent events (oldest → newest):\n{hist_str}\n\n"
+        f"Current event — {int(event['minute'])}' ({half_str} half):\n"
+        f"  Type   : {event['event_type']}\n"
+        f"  Player : {event['player'] or 'Unknown'}\n"
+        f"  Team   : {event['team'] or 'Unknown'}\n"
+        f"  ESPN   : \"{event['full_text']}\"\n\n"
+        f"Write one sentence of broadcast commentary for this event, "
+        f"referencing recent history where natural."
+    )
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": user},
+    ]
+    return _generate(messages)
+
+
+# ── Per-CSV processing ──────────────────────────────────────────────────────
+
+def process_csv(csv_path: Path, match_name: str, out_dir: Path):
+    print(f"\n{'─'*62}")
+    print(f"CSV   : {csv_path.name}")
     print(f"Match : {match_name}")
 
-    events = load_annotations(labels_path)
-    key    = [e for e in events if e["label"] in KEY_LABELS | {"GOAL"}]
+    all_events = parse_espn_csv(str(csv_path))
+    key_events = [e for e in all_events if e["event_type"] in COMMENTARY_TYPES]
 
-    if not key:
-        print("  [skip] No key events found in labels.")
+    if not key_events:
+        print("  [skip] No commentary-worthy events found in CSV.")
         return
 
-    print(f"Events: {len(key)} key events")
+    print(f"Events: {len(key_events)} (from {len(all_events)} total ESPN rows)\n")
 
-    output = []
-    for i, event in enumerate(key):
-        history   = format_history(key, i)
-        text      = generate_commentary(match_name, event, history)
-        event_type = LABEL_TO_TYPE.get(event["label"], event["label"].capitalize())
+    output  = []
+    history = []   # grows as we process — Qwen sees what was "said" before
+
+    for i, event in enumerate(key_events):
+        text = generate_commentary(event, history, match_name)
 
         entry = {
-            "minute"    : event["minute"],
+            "minute"    : int(event["minute"]),
             "half"      : event["half"],
-            "event_type": event_type,
+            "event_type": event["event_type"],
+            "player"    : event["player"],
             "team"      : event["team"],
             "human_text": text,
         }
         output.append(entry)
 
+        # add this event to history so the next call sees it
+        history.append({**event, "full_text": text})  # use generated sentence as "memory"
+
+        half_str = "1H" if event["half"] == 1 else "2H"
         print(
-            f"  [{i+1:02d}/{len(key):02d}] "
-            f"{event['minute']:02d}:{event['second']:02d} "
-            f"{'1H' if event['half']==1 else '2H'} "
-            f"{event['label']:<10} → \"{text}\""
+            f"  [{i+1:02d}/{len(key_events):02d}] "
+            f"{int(event['minute'])}' {half_str} "
+            f"{event['event_type']:<10} "
+            f"→ \"{text}\""
         )
 
-    out_path = folder / "ground_truth_commentary.json"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "ground_truth_commentary.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
 
     print(f"\n  Saved {len(output)} entries → {out_path}")
 
 
-# ── Peek ────────────────────────────────────────────────────────────────────
+# ── CSV discovery ───────────────────────────────────────────────────────────
 
-def peek():
-    folders = find_match_folders()
-    if not folders:
-        print("No Labels-ball.json found under data/")
-        return
-
-    path = folders[0] / "Labels-ball.json"
-    print(f"\nPeeking at: {path}\n")
-
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-
-    print("Top-level keys:", list(data.keys()))
-    anns = data.get("annotations") or data.get("events") or []
-    print(f"Total annotations: {len(anns)}\n")
-    print("First 3 annotations:")
-    for a in anns[:3]:
-        print(f"  {json.dumps(a, indent=4)}")
+def find_all_csvs() -> list[tuple[Path, str, Path]]:
+    """
+    Returns list of (csv_path, match_name, out_dir) tuples.
+    Looks for CSVs under data/ and tries to find a matching match folder.
+    """
+    results = []
+    for csv_path in sorted(DATA_DIR.glob("*.csv")):
+        # Derive match name from CSV filename
+        # e.g. "blackburn_forest_2019-10-01.csv" → look for matching folder
+        stem = csv_path.stem  # e.g. "blackburn_forest_2019-10-01"
+        # Try to find a data subfolder whose name loosely matches
+        match_folder = None
+        for folder in DATA_DIR.iterdir():
+            if folder.is_dir() and any(
+                w in folder.name.lower()
+                for w in stem.replace("_", " ").split()
+                if len(w) > 4
+            ):
+                match_folder = folder
+                break
+        out_dir    = match_folder if match_folder else DATA_DIR / stem
+        match_name = match_folder.name if match_folder else stem.replace("_", " ").title()
+        results.append((csv_path, match_name, out_dir))
+    return results
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--match", help="Partial match folder name")
-    ap.add_argument("--all",   action="store_true", help="Process all matches")
-    ap.add_argument("--peek",  action="store_true",
-                    help="Print Labels-ball.json schema and exit")
+    ap.add_argument("--csv",   help="Path to ESPN CSV file")
+    ap.add_argument("--match", help="Match name (used in Qwen prompt + output path)")
+    ap.add_argument("--out",   help="Output directory (default: data/<match>/)")
+    ap.add_argument("--all",   action="store_true",
+                    help="Process all CSVs found under data/")
     args = ap.parse_args()
 
-    if args.peek:
-        peek()
+    if args.all:
+        entries = find_all_csvs()
+        if not entries:
+            print("No CSV files found under data/")
+            sys.exit(1)
+        print(f"Found {len(entries)} CSV file(s).")
+        for csv_path, match_name, out_dir in entries:
+            process_csv(csv_path, match_name, out_dir)
         return
 
-    if args.match:
-        folder = find_match(args.match)
-        process_match(folder)
-    elif args.all:
-        folders = find_match_folders()
-        print(f"Found {len(folders)} match folder(s).")
-        for folder in folders:
-            process_match(folder)
+    if not args.csv:
+        # Auto-detect single CSV
+        csvs = list(DATA_DIR.glob("*.csv"))
+        if len(csvs) == 1:
+            args.csv = str(csvs[0])
+            print(f"Auto-detected CSV: {csvs[0].name}")
+        else:
+            ap.print_help()
+            sys.exit(1)
+
+    csv_path   = Path(args.csv)
+    match_name = args.match or csv_path.stem.replace("_", " ").title()
+
+    if args.out:
+        out_dir = Path(args.out)
     else:
-        ap.print_help()
+        # Default: data/<match_folder>/
+        # Try to find a folder whose name contains the date from the CSV
+        import re
+        date_m = re.search(r"\d{4}-\d{2}-\d{2}", csv_path.stem)
+        out_dir = None
+        if date_m:
+            date_str = date_m.group()
+            for folder in DATA_DIR.iterdir():
+                if folder.is_dir() and date_str in folder.name:
+                    out_dir = folder
+                    match_name = args.match or folder.name
+                    break
+        if out_dir is None:
+            out_dir = DATA_DIR / csv_path.stem
+
+    process_csv(csv_path, match_name, out_dir)
 
 
 if __name__ == "__main__":

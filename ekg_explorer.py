@@ -576,6 +576,7 @@ CLASS_LEVELS = {
     "Match"             : 0,
     "Team"              : 1,
     "Player"            : 2,
+    "Person"            : 2,
     "ActionEvent"       : 3,
     "Event"             : 3,
     "GoalEvent"         : 4,
@@ -659,19 +660,44 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
         for cls in ekg_classes(g):
             for parent in g.objects(cls, RDFS.subClassOf):
                 if isinstance(parent, URIRef) and str(parent).startswith(EKG_NS):
-                    add_edge(cls, parent, "subClassOf", "#AAAAAA")
+                    key = (str(cls), str(parent), "subClassOf")
+                    if key not in added_edges:
+                        added_edges.add(key)
+                        net.add_edge(str(cls), str(parent),
+                                     label="subClassOf",
+                                     color="#CCCCCC",
+                                     arrows="",
+                                     dashes=False,
+                                     width=1.0,
+                                     font={"size": 8, "color": "#AAAAAA"})
+
+        SCHEMA_DRAW_PROPS = {
+            "hasHomeTeam": "#FF8C00",
+            "hasAwayTeam": "#FF8C00",
+            "PLAYS_FOR"  : "#8E44AD",
+            "member"     : "#8E44AD",
+            "PERFORMED"  : "#2ECC71",
+            "TRIGGERED"  : "#F39C12",
+        }
         for ptype, prop in all_properties(g):
             if ptype != "object":
+                continue
+            pname = short(prop)
+            if pname not in SCHEMA_DRAW_PROPS:
                 continue
             doms = list(g.objects(prop, RDFS.domain))
             rngs = list(g.objects(prop, RDFS.range))
             for d in doms:
                 for r in rngs:
-                    if isinstance(d, URIRef) and isinstance(r, URIRef):
-                        is_trigger = short(prop) == "TRIGGERED"
+                    if not isinstance(d, URIRef) or not isinstance(r, URIRef):
+                        continue
+                    is_trigger = pname == "TRIGGERED"
+                    key = (str(d), str(r), pname)
+                    if key not in added_edges:
+                        added_edges.add(key)
                         net.add_edge(str(d), str(r),
-                                     label=short(prop),
-                                     color="#F39C12" if is_trigger else "#4A90D9",
+                                     label=pname,
+                                     color=SCHEMA_DRAW_PROPS[pname],
                                      dashes=is_trigger,
                                      arrows="to",
                                      width=1.5,

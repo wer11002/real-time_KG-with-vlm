@@ -670,6 +670,38 @@ def _print_aggregate_table(summaries: list[dict], out_path: Path):
     print(f"✓ Aggregate table saved to {out_path}")
 
 
+# ── AI event loader (JSON or text-log fallback) ───────────────────────────
+
+def _load_ai_events(json_path: Path, log_fallback: Path) -> list[dict]:
+    """
+    Try to load AI events from json_path first.
+    If not found, fall back to log_fallback (commentary_log.txt) and
+    convert parse_ai_log() output to the same dict format as JSON files.
+    """
+    if json_path.exists():
+        print(f"  Loading AI events from {json_path.name}")
+        return parse_json_commentary(json_path)
+
+    if log_fallback.exists():
+        print(f"  {json_path.name} not found — falling back to {log_fallback}")
+        raw = parse_ai_log(str(log_fallback))
+        # convert text-log format → JSON commentary format
+        converted = []
+        for e in raw:
+            converted.append({
+                "minute"    : float(e["minute"]),
+                "half"      : int(e["half"]),
+                "event_type": e["event_type"],
+                "player"    : "",
+                "team"      : "",
+                "human_text": e["full_text"],
+            })
+        print(f"  Converted {len(converted)} events from text log")
+        return converted
+
+    return []
+
+
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
@@ -702,23 +734,27 @@ def main():
 
     # ── MODE A: --all  ───────────────────────────────────────────────────
     if args.all:
+        # Accept folders that have GT JSON + either AI JSON or the shared text log
+        shared_log = OUT_DIR / "commentary_log.txt"
         folders = sorted(
             f for f in DATA_DIR.iterdir()
-            if f.is_dir()
-            and (f / args.gt_file).exists()
-            and (f / args.ai_file).exists()
+            if f.is_dir() and (f / args.gt_file).exists()
+            and ((f / args.ai_file).exists() or shared_log.exists())
         )
         if not folders:
-            print(f"No match folders found under {DATA_DIR} with both "
-                  f"'{args.gt_file}' and '{args.ai_file}'.")
+            print(f"No match folders found under {DATA_DIR} with '{args.gt_file}'.")
+            print(f"Also checked for fallback log: {shared_log}")
             return
 
-        print(f"Found {len(folders)} match folder(s) with both files.\n")
+        print(f"Found {len(folders)} match folder(s).\n")
         summaries = []
         for folder in folders:
             gt_events = parse_json_commentary(folder / args.gt_file)
-            ai_events = parse_json_commentary(folder / args.ai_file)
-            summary   = evaluate_match_json(
+            ai_events = _load_ai_events(folder / args.ai_file, shared_log)
+            if not ai_events:
+                print(f"  [skip] No AI events for {folder.name}")
+                continue
+            summary = evaluate_match_json(
                 gt_events, ai_events,
                 match_name   = folder.name,
                 tolerance_min= args.tolerance,
@@ -726,24 +762,26 @@ def main():
             )
             summaries.append(summary)
 
-        out_path = OUT_DIR / "evaluation_report_all.txt"
-        _print_aggregate_table(summaries, out_path)
+        if summaries:
+            out_path = OUT_DIR / "evaluation_report_all.txt"
+            _print_aggregate_table(summaries, out_path)
         return
 
     # ── MODE B: --match-dir  (JSON single match) ─────────────────────────
     if args.match_dir:
-        folder    = Path(args.match_dir)
-        gt_path   = folder / args.gt_file
-        ai_path   = folder / args.ai_file
+        folder   = Path(args.match_dir)
+        gt_path  = folder / args.gt_file
         if not gt_path.exists():
             print(f"GT file not found: {gt_path}")
             return
-        if not ai_path.exists():
-            print(f"AI file not found: {ai_path}")
+
+        shared_log = OUT_DIR / "commentary_log.txt"
+        ai_events  = _load_ai_events(folder / args.ai_file, shared_log)
+        if not ai_events:
+            print("No AI commentary found. Run the pipeline first to generate commentary.")
             return
 
         gt_events = parse_json_commentary(gt_path)
-        ai_events = parse_json_commentary(ai_path)
         evaluate_match_json(
             gt_events, ai_events,
             match_name   = folder.name,

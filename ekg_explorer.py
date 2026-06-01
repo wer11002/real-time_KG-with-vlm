@@ -586,7 +586,7 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
     added_nodes = set()
     added_edges = set()
 
-    def add_node(uri, label=None, color=None, size=14, title=None):
+    def add_node(uri, label=None, color=None, size=14, title=None, **kwargs):
         uid = str(uri)
         if uid in added_nodes:
             return
@@ -598,7 +598,8 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
                      color=color or node_color(g, uri),
                      size=size,
                      title=title or uid,
-                     font={"size": 11})
+                     font={"size": 11},
+                     **kwargs)
 
     def add_edge(src, dst, label="", color="#aaaaaa"):
         key = (str(src), str(dst), label)

@@ -751,180 +751,162 @@ def find_path_to_match(g, start_uri: str) -> list:
 
 def build_neighborhood_graph(g, center_uri: str) -> str:
     """
-    Neo4j-style hierarchy: Match → Team → Player → Events.
-    Uses raw vis.js — no pyvis dependency.
-    Reification nodes and non-EKG predicates are filtered out.
+    Focused hierarchy: Match → (Home Team, Away Team) → Player → Events.
+    Queries specific relationships only — no BFS, no clutter.
     """
-    EKG_PREDS = {
-        "IN_MATCH", "IS_PERFORMED_BY", "PERFORMED", "INVOLVED_IN",
-        "PLAYS_FOR", "PRECEDED_BY", "hasHomeTeam", "hasAwayTeam",
-        "PARTICIPATED_IN", "TRIGGERED", "member",
+    TYPE_BG = {
+        "Match":  "#3A86FF",
+        "Team":   "#E63946",
+        "Player": "#F4A261",
+        "Event":  "#2DC653",
     }
-    SKIP_PREFIXES = ("plays_for_", "participated_in_", "card_for_",
-                     "involved_in_", "in_match_")
+    EDGE_C = {
+        "hasHomeTeam": "#3A86FF",
+        "hasAwayTeam": "#3A86FF",
+        "PLAYS_FOR":   "#9B59B6",
+        "PERFORMED":   "#2DC653",
+    }
 
-    def glabel(uri_s):
-        u = URIRef(uri_s)
+    def glabel(u):
+        u = URIRef(u) if isinstance(u, str) else u
         lbl = next((str(o) for o in g.objects(u, RDFS.label)), None) or \
               next((str(o) for o in g.objects(u, FOAF.name)), None)
         if lbl:
             return lbl
-        s = short(uri_s)
+        s = short(str(u))
         if s.startswith("event_"):
-            tail = s.split("_")[-1].lstrip("0") or "0"
-            typ  = next((short(str(t)) for t in g.objects(u, RDF.type)
-                         if str(t).startswith(EKG_NS)), "Event")
-            return f"{typ} #{tail}"
+            tail  = s.split("_")[-1].lstrip("0") or "0"
+            etype = next((short(str(t)) for t in g.objects(u, RDF.type)
+                          if str(t).startswith(EKG_NS)), "Event")
+            return f"{etype} #{tail}"
         return s
 
-    def gtype(uri_s):
-        for t in g.objects(URIRef(uri_s), RDF.type):
-            s = short(str(t))
-            if s in ("Match", "Team", "Player"):
-                return s
-            if s.endswith("Event"):
-                return "Event"
-        return "Other"
+    def js(s):
+        return str(s).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
 
-    def is_noise(uri_s):
-        s = short(uri_s)
-        return any(s.startswith(p) for p in SKIP_PREFIXES)
+    player = URIRef(center_uri)
 
-    # ── BFS 2-hop from center ─────────────────────────────────────────────
-    nodes_info = {}   # uri_str → {label, type, is_center}
-    raw_edges  = []   # (src, rel, dst) — strings
+    # ── 1. find match ──────────────────────────────────────────────────────
+    match = next(g.objects(player, EKG.PARTICIPATED_IN), None)
+    if not match:
+        for ev in g.objects(player, EKG.PERFORMED):
+            match = next(g.objects(ev, EKG.IN_MATCH), None)
+            if match:
+                break
 
-    def add_node(uri_s, is_center=False):
-        if uri_s not in nodes_info and not is_noise(uri_s):
-            nodes_info[uri_s] = {"label": glabel(uri_s),
-                                  "type":  gtype(uri_s),
-                                  "is_center": is_center}
-            return True
-        return False
+    # ── 2. teams ───────────────────────────────────────────────────────────
+    home_team = g.value(match, EKG.hasHomeTeam) if match else None
+    away_team = g.value(match, EKG.hasAwayTeam) if match else None
 
-    add_node(center_uri, is_center=True)
-    frontier = [center_uri]
-    visited  = {center_uri}
+    # ── 3. which team does this player belong to? ──────────────────────────
+    player_team = None
+    for team in (home_team, away_team):
+        if team and (team, FOAF.member, player) in g:
+            player_team = team
+            break
+    if not player_team:
+        for team in (home_team, away_team):
+            if team and (player, EKG.PLAYS_FOR, team) in g:
+                player_team = team
+                break
 
-    for _ in range(2):
-        nxt = []
-        for cur in frontier:
-            cur_uri = URIRef(cur)
-            for pred, obj in g.predicate_objects(cur_uri):
-                p = short(str(pred))
-                if p not in EKG_PREDS or not isinstance(obj, URIRef):
-                    continue
-                obj_s = str(obj)
-                if is_noise(obj_s):
-                    continue
-                add_node(obj_s)
-                raw_edges.append((cur, p, obj_s))
-                if obj_s not in visited:
-                    visited.add(obj_s)
-                    nxt.append(obj_s)
-            for subj, pred in g.subject_predicates(cur_uri):
-                p = short(str(pred))
-                if p not in EKG_PREDS or not isinstance(subj, URIRef):
-                    continue
-                subj_s = str(subj)
-                if is_noise(subj_s):
-                    continue
-                add_node(subj_s)
-                raw_edges.append((subj_s, p, cur))
-                if subj_s not in visited:
-                    visited.add(subj_s)
-                    nxt.append(subj_s)
-        frontier = nxt
+    # ── 4. events performed (max 6, sorted by time) ────────────────────────
+    ev_raw = list(g.objects(player, EKG.PERFORMED))
+    def ev_time(e):
+        t = g.value(e, EKG.hasTime)
+        return str(t) if t else ""
+    ev_raw.sort(key=ev_time)
+    events = ev_raw[:6]
 
-    # ── assign x,y by type ────────────────────────────────────────────────
-    LEVEL_Y = {"Match": 60, "Team": 200, "Player": 340, "Event": 480, "Other": 340}
-    TYPE_BG  = {"Match": "#3A86FF", "Team": "#E63946",
-                 "Player": "#F4A261", "Event": "#2DC653", "Other": "#6C757D"}
-    X_GAP = 200
+    # ── 5. build node/edge lists with fixed positions ──────────────────────
+    nodes = []   # {id, label, x, y, bg}
+    edges = []   # {from, to, label, color}
+    added = set()
 
-    by_type: dict = {}
-    for u, info in nodes_info.items():
-        by_type.setdefault(info["type"], []).append(u)
+    def node(uid, label, x, y, bg, is_center=False):
+        uid = str(uid)
+        if uid in added:
+            return
+        added.add(uid)
+        color = "#FF6B35" if is_center else bg
+        nodes.append({"id": uid, "label": label, "x": x, "y": y, "bg": color})
 
-    positions: dict = {}
-    for t, uris in by_type.items():
-        span = (len(uris) - 1) * X_GAP
-        for i, u in enumerate(uris):
-            positions[u] = (-span / 2 + i * X_GAP, LEVEL_Y.get(t, 340))
+    def edge(src, dst, label, color):
+        edges.append({"from": str(src), "to": str(dst),
+                      "label": label, "color": color})
 
-    # ── build vis.js HTML ─────────────────────────────────────────────────
-    def js_str(s):
-        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+    # Match — top center
+    if match:
+        node(match, glabel(match), 0, 0, TYPE_BG["Match"])
 
-    node_js_list = []
-    for u, info in nodes_info.items():
-        x, y = positions.get(u, (0, 340))
-        bg   = "#FF6B35" if info["is_center"] else TYPE_BG.get(info["type"], "#6C757D")
-        lbl  = js_str(info["label"])
-        node_js_list.append(
-            f'{{id:"{js_str(u)}",label:"{lbl}",x:{x},y:{y},'
-            f'color:{{background:"{bg}",border:"rgba(255,255,255,0.3)",'
-            f'highlight:{{background:"{bg}",border:"#fff"}}}},'
-            f'font:{{color:"#fff",size:13,face:"Inter,sans-serif",bold:true}},'
-            f'shape:"dot",size:28,title:"{js_str(u)}",borderWidth:2}}'
-        )
+    # Teams — left (home) and right (away), y=170
+    if home_team:
+        node(home_team, glabel(home_team), -280, 170, TYPE_BG["Team"])
+        if match:
+            edge(match, home_team, "hasHomeTeam", EDGE_C["hasHomeTeam"])
+    if away_team and away_team != home_team:
+        node(away_team, glabel(away_team),  280, 170, TYPE_BG["Team"])
+        if match:
+            edge(match, away_team, "hasAwayTeam", EDGE_C["hasAwayTeam"])
 
-    EDGE_C = {
-        "IN_MATCH":"#3A86FF","IS_PERFORMED_BY":"#2DC653","PERFORMED":"#2DC653",
-        "INVOLVED_IN":"#E63946","PLAYS_FOR":"#9B59B6","PRECEDED_BY":"#7F8C8D",
-        "hasHomeTeam":"#E63946","hasAwayTeam":"#E63946",
-        "PARTICIPATED_IN":"#3A86FF","TRIGGERED":"#FF6B35",
-    }
+    # Player — below their team
+    px = -280 if player_team == home_team else (280 if player_team == away_team else 0)
+    node(player, glabel(player), px, 340, TYPE_BG["Player"], is_center=True)
+    if player_team:
+        edge(player_team, player, "PLAYS_FOR", EDGE_C["PLAYS_FOR"])
 
-    seen_edges: set = set()
-    edge_js_list = []
-    for src, rel, dst in raw_edges:
-        key = (src, dst, rel)
-        if key in seen_edges or src not in nodes_info or dst not in nodes_info:
-            continue
-        seen_edges.add(key)
-        ec = EDGE_C.get(rel, "#AAAAAA")
-        edge_js_list.append(
-            f'{{from:"{js_str(src)}",to:"{js_str(dst)}",label:"{rel}",'
-            f'color:{{color:"{ec}",highlight:"#fff"}},'
-            f'font:{{size:10,color:"#ccc",strokeWidth:3,strokeColor:"#1a1a2e"}},'
-            f'arrows:"to",width:2,smooth:{{enabled:false}}}}'
-        )
+    # Events — spread below player
+    n = len(events)
+    ev_gap = 160
+    ev_x0  = px - (n - 1) * ev_gap / 2
+    for i, ev in enumerate(events):
+        ex = ev_x0 + i * ev_gap
+        node(ev, glabel(ev), ex, 500, TYPE_BG["Event"])
+        edge(player, ev, "PERFORMED", EDGE_C["PERFORMED"])
 
-    nodes_str = ",\n    ".join(node_js_list)
-    edges_str = ",\n    ".join(edge_js_list)
+    # ── 6. render vis.js ───────────────────────────────────────────────────
+    node_js = ",\n    ".join(
+        f'{{id:"{js(n["id"])}",label:"{js(n["label"])}",x:{n["x"]},y:{n["y"]},'
+        f'color:{{background:"{n["bg"]}",border:"rgba(255,255,255,0.25)",'
+        f'highlight:{{background:"{n["bg"]}",border:"#fff"}}}},'
+        f'font:{{color:"#fff",size:13,bold:true}},'
+        f'shape:"dot",size:30,title:"{js(n["id"])}",borderWidth:2}}'
+        for n in nodes
+    )
+    edge_js = ",\n    ".join(
+        f'{{from:"{js(e["from"])}",to:"{js(e["to"])}",label:"{js(e["label"])}",'
+        f'color:{{color:"{e["color"]}",highlight:"#fff"}},'
+        f'font:{{size:10,color:"#bbb",strokeWidth:2,strokeColor:"#1a1a2e"}},'
+        f'arrows:"to",width:2,smooth:{{enabled:false}}}}'
+        for e in edges
+    )
 
-    html = f"""<!DOCTYPE html><html><head>
+    return f"""<!DOCTYPE html><html><head>
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <style>
   body{{margin:0;padding:0;background:#1a1a2e;}}
-  #graph{{width:100%;height:520px;}}
-  .legend{{position:absolute;top:10px;right:14px;font:11px Inter,sans-serif;color:#ccc;}}
-  .dot{{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle;}}
-</style></head>
-<body>
-<div id="graph"></div>
-<div class="legend">
+  #g{{width:100%;height:520px;}}
+  .leg{{position:absolute;top:8px;right:10px;font:11px sans-serif;color:#bbb;line-height:1.8;}}
+  .dot{{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle;}}
+</style></head><body>
+<div id="g"></div>
+<div class="leg">
   <div><span class="dot" style="background:#3A86FF"></span>Match</div>
   <div><span class="dot" style="background:#E63946"></span>Team</div>
-  <div><span class="dot" style="background:#FF6B35"></span>Selected</div>
+  <div><span class="dot" style="background:#FF6B35"></span>Selected player</div>
   <div><span class="dot" style="background:#F4A261"></span>Player</div>
   <div><span class="dot" style="background:#2DC653"></span>Event</div>
 </div>
 <script>
-var nodes = new vis.DataSet([
-    {nodes_str}
-]);
-var edges = new vis.DataSet([
-    {edges_str}
-]);
-var net = new vis.Network(document.getElementById("graph"),
-    {{nodes:nodes, edges:edges}},
-    {{physics:{{enabled:false}},
-      interaction:{{hover:true,tooltipDelay:80,navigationButtons:false}},
-      nodes:{{borderWidth:2}}}});
+var net = new vis.Network(
+  document.getElementById("g"),
+  {{nodes: new vis.DataSet([{node_js}]),
+    edges: new vis.DataSet([{edge_js}])}},
+  {{physics:{{enabled:false}},
+    interaction:{{hover:true,tooltipDelay:80}},
+    nodes:{{borderWidth:2}}}}
+);
 </script></body></html>"""
-    return html
 
 
 with tab_node:

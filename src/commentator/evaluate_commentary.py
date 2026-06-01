@@ -46,13 +46,16 @@ def parse_ai_log(path):
 # ── Find closest AI match (±2 min, same half + event type) ────────────────
 
 def find_match(human, ai_events, tol=2.0):
+    def abs_min(e):
+        return e["minute"] + (45 if e["half"] == 2 else 0)
+
+    human_abs = human["minute"] + (45 if human["half"] == 2 else 0)
     same = [
         e for e in ai_events
-        if e["half"] == human["half"]
-        and e["event_type"].lower() == human["event_type"].lower()
-        and abs(e["minute"] - human["minute"]) <= tol
+        if e["event_type"].lower() == human["event_type"].lower()
+        and abs(abs_min(e) - human_abs) <= tol
     ]
-    return min(same, key=lambda e: abs(e["minute"] - human["minute"])) if same else None
+    return min(same, key=lambda e: abs(abs_min(e) - human_abs)) if same else None
 
 
 # ── Metric A — BLEU ────────────────────────────────────────────────────────
@@ -184,8 +187,7 @@ def full_coverage_analysis(espn_events, ai_events, tol_min=1.5):
         espn_half = int(espn.get("half", 1))
         hit = any(
             e["event_type"] == ai_type
-            and e["half"] == espn_half
-            and abs(e["minute"] - espn_min) <= tol_min
+            and abs((e["minute"] + (45 if e["half"] == 2 else 0)) - espn_min) <= tol_min
             for e in ai_events
         )
 

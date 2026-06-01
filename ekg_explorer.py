@@ -634,6 +634,12 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
     # ── INSTANCE mode — A-Box data ───────────────────────────────────────────
     else:
         obj_props = {str(p) for _, p in all_properties(g) if _ == "object"}
+        # also allow foaf:member (Team→Player) and hasHomeTeam/hasAwayTeam
+        obj_props |= {
+            str(FOAF.member),
+            str(EKG.hasHomeTeam),
+            str(EKG.hasAwayTeam),
+        }
 
         # Add Match and Team nodes first (always visible anchors)
         for uri in g.subjects(RDF.type, EKG.Match):
@@ -677,15 +683,19 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
             if str(s) not in added_nodes or str(o) not in added_nodes:
                 continue
             prop_name = short(p)
-            edge_colors = {
-                "IN_MATCH"      : "#4A90D9",
-                "IS_PERFORMED_BY": "#2ECC71",
-                "PERFORMED"     : "#2ECC71",
-                "INVOLVED_IN"   : "#E74C3C",
-                "PLAYS_FOR"     : "#8E44AD",
-                "PRECEDED_BY"   : "#888888",
+            DRAW_PROPS = {
+                "hasHomeTeam": "#FF8C00",
+                "hasAwayTeam": "#FF8C00",
+                "member"     : "#8E44AD",
+                "PLAYS_FOR"  : "#8E44AD",
+                "PERFORMED"  : "#2ECC71",
+                "PRECEDED_BY": "#888888",
+                "TRIGGERED"  : "#F39C12",
+                "ASSISTED_BY": "#1ABC9C",
             }
-            add_edge(s, o, prop_name, edge_colors.get(prop_name, "#BBBBBB"))
+            if prop_name not in DRAW_PROPS:
+                continue
+            add_edge(s, o, prop_name, DRAW_PROPS[prop_name])
 
     # write to temp file and return HTML
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:

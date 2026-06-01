@@ -612,11 +612,28 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
 
     # ── SCHEMA mode — T-Box classes + object properties ─────────────────────
     if mode == "schema":
+        net.set_options("""
+{
+  "layout": {
+    "hierarchical": {
+      "enabled": true,
+      "direction": "UD",
+      "sortMethod": "directed",
+      "levelSeparation": 120,
+      "nodeSpacing": 140
+    }
+  },
+  "physics": {
+    "enabled": false
+  }
+}
+""")
         for cls in ekg_classes(g):
             add_node(cls,
                      label=short(cls),
                      color=NODE_COLORS.get(short(cls), "#7FB3D3"),
-                     size=22)
+                     size=22,
+                     shape="box")
         for cls in ekg_classes(g):
             for parent in g.objects(cls, RDFS.subClassOf):
                 if isinstance(parent, URIRef) and str(parent).startswith(EKG_NS):

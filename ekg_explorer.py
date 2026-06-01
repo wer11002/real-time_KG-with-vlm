@@ -318,6 +318,7 @@ if "node" not in st.session_state:
 
 def goto(uri: str):
     st.session_state.node = uri
+    st.session_state._jump_node = True
 
 # tabs
 tab_search, tab_schema, tab_graph, tab_instances, tab_node = st.tabs([
@@ -397,16 +398,24 @@ with tab_search:
                             inst = instances_of(g, cls)
                             st.markdown(f"##### Instances: **{len(inst)}**")
                             if inst:
-                                rows = "".join(
-                                    f"<div style='padding:2px 0;font-size:13px;'>• {short(i)}</div>"
-                                    for i in sorted(inst, key=lambda x: short(x).lower())
-                                )
-                                st.html(
-                                    f"<div style='max-height:260px;overflow-y:auto;"
-                                    f"border:1px solid #e0e0e0;border-radius:6px;"
-                                    f"padding:8px 12px;background:#fafafa;'>"
-                                    f"{rows}</div>"
-                                )
+                                PREVIEW = 6
+                                show_key = f"_show_all_{short(cls)}"
+                                if show_key not in st.session_state:
+                                    st.session_state[show_key] = False
+                                sorted_inst = sorted(inst, key=lambda x: short(x).lower())
+                                visible = sorted_inst if st.session_state[show_key] else sorted_inst[:PREVIEW]
+                                for i in visible:
+                                    lbl = next((str(o) for o in g.objects(i, RDFS.label)), None) \
+                                          or next((str(o) for o in g.objects(i, FOAF.name)), None) \
+                                          or short(i)
+                                    if st.button(f"• {lbl}", key=f"ins_{short(cls)}_{short(i)}", use_container_width=True):
+                                        goto(str(i))
+                                        st.info(f"**{lbl}** selected — click the **Node** tab to inspect.")
+                                if len(inst) > PREVIEW:
+                                    toggle_label = f"▲ Show less" if st.session_state[show_key] else f"▼ Show all {len(inst)}"
+                                    if st.button(toggle_label, key=f"_toggle_{short(cls)}"):
+                                        st.session_state[show_key] = not st.session_state[show_key]
+                                        st.rerun()
 
                         # ── full-width T-Box flow diagram ─────────────────────
                         st.markdown("##### T-Box Schema Flow")

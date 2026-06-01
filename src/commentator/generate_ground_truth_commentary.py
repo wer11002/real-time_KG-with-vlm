@@ -24,6 +24,7 @@ Usage:
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -216,31 +217,50 @@ def process_csv(csv_path: Path, match_name: str, out_dir: Path):
     print(f"\n  Saved {len(output)} entries → {out_path}")
 
 
+# ── helpers (mirrors generate_espn_csv.py) ──────────────────────────────────
+
+def _parse_match_folder(folder: Path):
+    """'YYYY-MM-DD - Team One - Team Two' → (date, team1, team2) or None."""
+    parts = folder.name.split(" - ", 2)
+    if len(parts) != 3:
+        return None
+    date, team1, team2 = parts
+    if not (len(date) == 10 and date[4] == "-" and date[7] == "-"):
+        return None
+    return date.strip(), team1.strip(), team2.strip()
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+def _csv_path_for(date: str, team1: str, team2: str) -> Path:
+    return DATA_DIR / f"{date}_{_slug(team1)}_{_slug(team2)}.csv"
+
+
 # ── CSV discovery ───────────────────────────────────────────────────────────
 
 def find_all_csvs() -> list[tuple[Path, str, Path]]:
     """
     Returns list of (csv_path, match_name, out_dir) tuples.
-    Looks for CSVs under data/ and tries to find a matching match folder.
+    Iterates match folders (YYYY-MM-DD - Team1 - Team2) and derives the
+    expected CSV path from the same slug logic used by generate_espn_csv.py.
+    Skips folders whose CSV does not exist.
     """
     results = []
-    for csv_path in sorted(DATA_DIR.glob("*.csv")):
-        # Derive match name from CSV filename
-        # e.g. "blackburn_forest_2019-10-01.csv" → look for matching folder
-        stem = csv_path.stem  # e.g. "blackburn_forest_2019-10-01"
-        # Try to find a data subfolder whose name loosely matches
-        match_folder = None
-        for folder in DATA_DIR.iterdir():
-            if folder.is_dir() and any(
-                w in folder.name.lower()
-                for w in stem.replace("_", " ").split()
-                if len(w) > 4
-            ):
-                match_folder = folder
-                break
-        out_dir    = match_folder if match_folder else DATA_DIR / stem
-        match_name = match_folder.name if match_folder else stem.replace("_", " ").title()
-        results.append((csv_path, match_name, out_dir))
+    for folder in sorted(DATA_DIR.iterdir()):
+        if not folder.is_dir():
+            continue
+        parsed = _parse_match_folder(folder)
+        if not parsed:
+            continue
+        date, team1, team2 = parsed
+        csv_path = _csv_path_for(date, team1, team2)
+        if not csv_path.exists():
+            print(f"[SKIP]  {folder.name}")
+            print(f"        → CSV not found: {csv_path.name}")
+            continue
+        results.append((csv_path, folder.name, folder))
     return results
 
 
@@ -266,7 +286,7 @@ def main():
         return
 
     if not args.csv:
-        # Auto-detect single CSV
+        # Auto-detect: prefer unique CSV; otherwise require explicit --csv
         csvs = list(DATA_DIR.glob("*.csv"))
         if len(csvs) == 1:
             args.csv = str(csvs[0])
@@ -275,24 +295,26 @@ def main():
             ap.print_help()
             sys.exit(1)
 
-    csv_path   = Path(args.csv)
-    match_name = args.match or csv_path.stem.replace("_", " ").title()
+    csv_path = Path(args.csv)
 
     if args.out:
-        out_dir = Path(args.out)
+        out_dir    = Path(args.out)
+        match_name = args.match or csv_path.stem.replace("_", " ").title()
     else:
-        # Default: data/<match_folder>/
-        # Try to find a folder whose name contains the date from the CSV
-        import re
-        date_m = re.search(r"\d{4}-\d{2}-\d{2}", csv_path.stem)
-        out_dir = None
-        if date_m:
-            date_str = date_m.group()
-            for folder in DATA_DIR.iterdir():
-                if folder.is_dir() and date_str in folder.name:
-                    out_dir = folder
-                    match_name = args.match or folder.name
-                    break
+        # Find the match folder whose slug-derived CSV path matches this file.
+        out_dir    = None
+        match_name = args.match or csv_path.stem.replace("_", " ").title()
+        for folder in DATA_DIR.iterdir():
+            if not folder.is_dir():
+                continue
+            parsed = _parse_match_folder(folder)
+            if not parsed:
+                continue
+            date, team1, team2 = parsed
+            if _csv_path_for(date, team1, team2) == csv_path.resolve():
+                out_dir    = folder
+                match_name = args.match or folder.name
+                break
         if out_dir is None:
             out_dir = DATA_DIR / csv_path.stem
 

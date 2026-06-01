@@ -211,6 +211,50 @@ def full_coverage_analysis(espn_events, ai_events, tol_min=1.5):
     return type_stats
 
 
+# ── Corpus BLEU (match-level document similarity) ─────────────────────────
+
+def corpus_bleu_score(human_texts: list[str], ai_texts: list[str]) -> float:
+    """
+    NLTK corpus_bleu: human sentences are references, AI are hypotheses.
+    Each human sentence is one reference set for the corresponding AI sentence.
+    Measures overall linguistic similarity across the whole match, not per event.
+    """
+    from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
+    if not human_texts or not ai_texts:
+        return 0.0
+    refs  = [[t.lower().split()] for t in human_texts]
+    hyps  = [t.lower().split()   for t in ai_texts]
+    return round(
+        corpus_bleu(refs, hyps,
+                    weights=(0.5, 0.5),
+                    smoothing_function=SmoothingFunction().method1),
+        3,
+    )
+
+
+# ── Match Overall Score (MOS) ──────────────────────────────────────────────
+
+def match_overall_score(
+    coverage_rate : float,   # matched / total  (0–1)
+    fact_rate     : float,   # avg fact score / 3  (0–1)
+    bert_avg      : float,   # avg BERTScore  (0–1)
+    crr_ratio     : float,   # ai_crr / human_crr  (0–1, capped at 1)
+) -> float:
+    """
+    Weighted 0–10 composite:
+      40% coverage  — did the AI notice the events at all?
+      30% semantics — does the sentence mean the same thing? (BERTScore)
+      20% factual   — right player / team / outcome?
+      10% context   — does it reference past events like a human would?
+    """
+    crr_ratio = min(crr_ratio, 1.0)
+    raw = (0.40 * coverage_rate +
+           0.30 * bert_avg      +
+           0.20 * fact_rate     +
+           0.10 * crr_ratio)
+    return round(raw * 10, 2)
+
+
 # ── CRR ───────────────────────────────────────────────────────────────────
 
 def crr(texts):
@@ -369,6 +413,17 @@ def main():
     ai_crr    = crr([r["ai_text"]    for r in results if r["matched"]])
     human_crr = crr([r["human_text"] for r in results])
 
+    # ── match-level scores ────────────────────────────────────────────────
+    matched_human_texts = [r["human_text"] for r in results if r["matched"]]
+    matched_ai_texts    = [r["ai_text"]    for r in results if r["matched"]]
+    corp_bleu = corpus_bleu_score(matched_human_texts, matched_ai_texts)
+
+    coverage_rate = matched_count / len(results) if results else 0.0
+    fact_rate     = (avg_fact / 3) if matched else 0.0
+    bert_val      = avg_bert if avg_bert is not None else 0.0
+    crr_ratio     = (ai_crr / human_crr / 100) if human_crr > 0 else 0.0
+    mos           = match_overall_score(coverage_rate, fact_rate, bert_val, crr_ratio)
+
     out.append(f"\n{'─'*W}")
     out.append("  AGGREGATE SCORES  (matched events only)")
     out.append(f"{'─'*W}")
@@ -396,6 +451,26 @@ def main():
     if avg_bert is not None:
         quality = "partial match" if avg_bert < 0.65 else "good match"
         out.append(f"  Semantics : BERTScore {avg_bert} — {quality} with human phrasing")
+    out.append("")
+
+    # ── match-level summary scores ────────────────────────────────────────
+    mos_bar_filled = int(mos)   # 0–10 → 0–10 blocks
+    mos_bar = f"[{'█'*mos_bar_filled}{'░'*(10-mos_bar_filled)}] {mos}/10"
+
+    out.append(f"{'─'*W}")
+    out.append("  MATCH-LEVEL SCORES")
+    out.append(f"{'─'*W}")
+    out.append(f"  Corpus BLEU     : {bar(corp_bleu)}")
+    out.append(f"    └─ Measures full-match linguistic similarity across all matched")
+    out.append(f"       event pairs (AI sentences vs ground-truth sentences).")
+    out.append(f"       Higher = AI uses similar words/phrases to human commentary.")
+    out.append(f"")
+    out.append(f"  Match Overall   : {mos_bar}")
+    out.append(f"    └─ Weighted composite for this match:")
+    out.append(f"         40% coverage  ({round(coverage_rate*100,1)}%  — events AI noticed)")
+    out.append(f"         30% semantics ({round(bert_val*100,1)}%  — BERTScore)")
+    out.append(f"         20% factual   ({round(fact_rate*100,1)}%  — player/team/outcome)")
+    out.append(f"         10% context   ({round(crr_ratio*100,1)}%  — CRR vs human)")
     out.append("")
 
     report = "\n".join(out)

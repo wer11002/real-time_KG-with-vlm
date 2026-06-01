@@ -1,26 +1,32 @@
 [
   {
-    "minute": 9, "half": 1,
-    "event_type": "Shot",
-    "player": "Adam Armstrong", "team": "Blackburn Rovers",
-    "human_text": "FILL FROM YOUTUBE"
-  },
-  {
-    "minute": 28, "half": 1,
-    "event_type": "Shot",
-    "player": "Lewis Grabban", "team": "Nottingham Forest",
-    "human_text": "FILL FROM YOUTUBE"
-  },
-  {
-    "minute": 63, "half": 2,
-    "event_type": "Goal",
-    "player": "Adam Armstrong", "team": "Blackburn Rovers",
-    "human_text": "FILL FROM YOUTUBE"
-  },
-  {
-    "minute": 65, "half": 2,
-    "event_type": "Goal",
+    "minute": 1, "half": 1, "event_type": "Shot",
     "player": "Joe Lolley", "team": "Nottingham Forest",
-    "human_text": "FILL FROM YOUTUBE"
+    "human_text": "Lolley nearly puts Forest ahead inside the opening minute — a deflected effort from six yards goes agonisingly wide after Grabban's header back across goal."
+  },
+  {
+    "minute": 8, "half": 1, "event_type": "Shot",
+    "player": "Stewart Downing", "team": "Blackburn Rovers",
+    "human_text": "Downing tests Samba with a low drive from 20 yards — Blackburn's first real attempt of the evening."
+  },
+  {
+    "minute": 28, "half": 1, "event_type": "Shot",
+    "player": "Lewis Grabban", "team": "Nottingham Forest",
+    "human_text": "Grabban volleys straight at Walton from the edge of the area — a good chance wasted for the Forest striker."
+  },
+  {
+    "minute": 63, "half": 2, "event_type": "Goal",
+    "player": "Adam Armstrong", "team": "Blackburn Rovers",
+    "human_text": "Armstrong finally gets his reward! He bursts through the Forest defence, Worrall can only block his initial effort but the striker fires the rebound past Samba from a tight angle. Blackburn lead 1-0!"
+  },
+  {
+    "minute": 65, "half": 2, "event_type": "Goal",
+    "player": "Joe Lolley", "team": "Nottingham Forest",
+    "human_text": "Forest hit back immediately! Lolley picks up the ball 25 yards out, nobody closes him down and he unleashes a shot into the bottom corner. 1-1!"
+  },
+  {
+    "minute": 75, "half": 2, "event_type": "Shot",
+    "player": "Albert Adomah", "team": "Nottingham Forest",
+    "human_text": "Adomah fails to capitalise on Carvalho's through ball — the winger is through on goal but somehow fails to get a shot away."
   }
 ]

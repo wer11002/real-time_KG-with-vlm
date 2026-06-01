@@ -367,6 +367,8 @@ class EKG_Graph:
 
     def events_by_type(self, event_type: str) -> list:
         q = """
+        PREFIX ekg:  <http://soccerekg.org/ontology#>
+        PREFIX data: <http://soccerekg.org/data#>
         SELECT ?e WHERE {
             ?e ekg:hasEventType ?t .
             FILTER (STR(?t) = ?etype)
@@ -377,6 +379,8 @@ class EKG_Graph:
 
     def count_cards(self, player_id: str, color: str = "YellowCard") -> int:
         q = """
+        PREFIX ekg:  <http://soccerekg.org/ontology#>
+        PREFIX data: <http://soccerekg.org/data#>
         SELECT (COUNT(?e) AS ?c) WHERE {
             ?p ekg:PERFORMED ?e .
             ?e a ekg:CardEvent .
@@ -438,7 +442,11 @@ class EKG_Graph:
         return summary
 
     def events_for_player(self, player_id: str) -> list:
-        q = "SELECT ?e WHERE { ?p ekg:PERFORMED ?e . }"
+        q = """
+        PREFIX ekg:  <http://soccerekg.org/ontology#>
+        PREFIX data: <http://soccerekg.org/data#>
+        SELECT ?e WHERE { ?p ekg:PERFORMED ?e . }
+        """
         return [row[0] for row in self.g.query(
             q, initBindings={"p": self.player_uri(player_id)})]
 
@@ -448,6 +456,8 @@ class EKG_Graph:
         Uses standard RDF reification (rdf:Statement) with validFrom/validUntil.
         """
         q = """
+        PREFIX ekg:  <http://soccerekg.org/ontology#>
+        PREFIX data: <http://soccerekg.org/data#>
         SELECT ?team WHERE {
             ?edge rdf:type      rdf:Statement .
             ?edge rdf:subject   ?p .

@@ -758,7 +758,7 @@ def build_neighborhood_graph(g, center_uri: str) -> str:
     EKG_PREDS = {
         "IN_MATCH", "IS_PERFORMED_BY", "PERFORMED", "INVOLVED_IN",
         "PLAYS_FOR", "PRECEDED_BY", "hasHomeTeam", "hasAwayTeam",
-        "PARTICIPATED_IN", "TRIGGERED",
+        "PARTICIPATED_IN", "TRIGGERED", "member",
     }
     SKIP_PREFIXES = ("plays_for_", "participated_in_", "card_for_",
                      "involved_in_", "in_match_")
@@ -888,7 +888,7 @@ def build_neighborhood_graph(g, center_uri: str) -> str:
             f'{{from:"{js_str(src)}",to:"{js_str(dst)}",label:"{rel}",'
             f'color:{{color:"{ec}",highlight:"#fff"}},'
             f'font:{{size:10,color:"#ccc",strokeWidth:3,strokeColor:"#1a1a2e"}},'
-            f'arrows:"to",width:2,smooth:{{type:"curvedCW",roundness:0.1}}}}'
+            f'arrows:"to",width:2,smooth:{{enabled:false}}}}'
         )
 
     nodes_str = ",\n    ".join(node_js_list)

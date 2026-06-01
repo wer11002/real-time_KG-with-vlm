@@ -529,3 +529,178 @@ def start_commentator(ttl_path: str):
     t = threading.Thread(target=_commentator_loop, args=(ttl_path,), daemon=True)
     t.start()
     print(f"[commentator] started → {ttl_path}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STANDALONE MODE — generate commentary from an already-built KG
+# ═══════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+    import re
+    from types import SimpleNamespace
+    from rdflib import RDFS
+
+    _BASE_DIR   = Path(__file__).resolve().parent.parent.parent
+    _DATA_DIR   = _BASE_DIR / "data"
+    _TTL_DEFAULT = _BASE_DIR / "data" / "kg_output" / "ekg.ttl"
+
+    ap = argparse.ArgumentParser(
+        description="Generate AI commentary from an existing EKG (post-hoc)."
+    )
+    ap.add_argument("--ttl",     default=str(_TTL_DEFAULT), help="Path to ekg.ttl")
+    ap.add_argument("--match",   help="Partial match name filter (e.g. 'Blackburn')")
+    ap.add_argument("--all",     action="store_true", help="Process all matches in KG")
+    ap.add_argument("--out-dir", help="Override output directory for all matches")
+    ap.add_argument("--force",   action="store_true",
+                    help="Overwrite ai_commentary.json if it already exists")
+    args = ap.parse_args()
+
+    if not args.all and not args.match:
+        ap.print_help()
+        sys.exit(1)
+
+    ttl_path = args.ttl
+    if not Path(ttl_path).exists():
+        print(f"TTL not found: {ttl_path}")
+        sys.exit(1)
+
+    # ── discover matches in KG ───────────────────────────────────────────────
+    g = _load(ttl_path)
+    q_matches = """
+    PREFIX ekg:  <http://soccerekg.org/ontology#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    SELECT DISTINCT ?match ?label WHERE {
+        ?match a ekg:Match .
+        OPTIONAL { ?match rdfs:label ?label }
+    }
+    """
+    all_matches = []
+    for r in g.query(q_matches):
+        label = str(r.label) if r.label else str(r.match).split("/")[-1]
+        all_matches.append((str(r.match), label))
+
+    if args.match:
+        all_matches = [(u, l) for u, l in all_matches
+                       if args.match.lower() in l.lower()]
+
+    if not all_matches:
+        print("No matches found in KG" +
+              (f" matching '{args.match}'" if args.match else "") + ".")
+        sys.exit(1)
+
+    print(f"Found {len(all_matches)} match(es) in KG.\n")
+
+    def _find_match_folder(label: str, match_uri: str) -> Path:
+        """Map a KG match label/URI back to a data/ folder."""
+        # 1. exact folder name
+        candidate = _DATA_DIR / label
+        if candidate.is_dir():
+            return candidate
+        # 2. folder name contains the label (or significant words of it)
+        for folder in sorted(_DATA_DIR.iterdir()):
+            if not folder.is_dir():
+                continue
+            if label.lower() in folder.name.lower():
+                return folder
+            # partial: check that date + both team slugs appear in folder name
+            slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+            if slug[:12] in folder.name.lower():   # first 12 chars cover date
+                return folder
+        # 3. derive from URI slug
+        uri_slug = match_uri.rstrip("/").split("/")[-1]
+        for folder in sorted(_DATA_DIR.iterdir()):
+            if folder.is_dir() and uri_slug[:12] in folder.name.replace(" - ", "_").lower():
+                return folder
+        return _DATA_DIR / label  # fallback (may not exist)
+
+    # ── process each match ───────────────────────────────────────────────────
+    for match_uri, match_label in all_matches:
+        match_folder = _find_match_folder(match_label, match_uri)
+        out_dir  = Path(args.out_dir) if args.out_dir else match_folder
+        out_json = out_dir / "ai_commentary.json"
+        out_log  = out_dir / "commentary_log.txt"
+
+        print(f"{'─'*62}")
+        print(f"Match : {match_label}")
+        print(f"Folder: {match_folder}")
+
+        if out_json.exists() and not args.force:
+            print(f"[SKIP] ai_commentary.json already exists (use --force to overwrite)\n")
+            continue
+
+        # query events ordered by period then minute
+        q_events = """
+        PREFIX ekg:  <http://soccerekg.org/ontology#>
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        SELECT ?e ?type ?hasTime ?minute ?period ?desc ?playerLabel ?teamLabel WHERE {
+            ?e ekg:IN_MATCH <%s> ;
+               ekg:hasEventType ?type ;
+               ekg:hasTime      ?hasTime ;
+               ekg:hasMinute    ?minute ;
+               ekg:hasPeriod    ?period .
+            OPTIONAL { ?e ekg:hasDescription ?desc }
+            OPTIONAL {
+                ?player ekg:PERFORMED ?e ;
+                        rdfs:label    ?playerLabel .
+            }
+            OPTIONAL {
+                ?e ekg:INVOLVED_IN ?team .
+                ?team rdfs:label   ?teamLabel .
+            }
+        }
+        ORDER BY ?period ?minute
+        """ % match_uri
+
+        events = []
+        for r in g.query(q_events):
+            events.append({
+                "uri"        : str(r.e),
+                "action"     : str(r.type),
+                "gametime"   : str(r.hasTime),
+                "minute"     : float(r.minute),
+                "period"     : int(r.period),
+                "description": str(r.desc) if r.desc else "",
+                "player"     : str(r.playerLabel) if r.playerLabel else None,
+                "team"       : str(r.teamLabel)   if r.teamLabel   else None,
+            })
+
+        if not events:
+            print("  [skip] No events found in KG for this match.\n")
+            continue
+
+        print(f"Events: {len(events)}\n")
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        output = []
+        with open(out_log, "w", encoding="utf-8") as log_f:
+            for i, ev in enumerate(events):
+                event_obj = SimpleNamespace(
+                    action      = ev["action"],
+                    gametime    = ev["gametime"],
+                    player      = ev["player"],
+                    team        = ev["team"],
+                    description = ev["description"],
+                )
+                text     = agent_commentate(event_obj, ttl_path)
+                half_str = "1H" if ev["period"] == 1 else "2H"
+                print(
+                    f"  [{i+1:02d}/{len(events):02d}] "
+                    f"{int(ev['minute'])}' {half_str} "
+                    f"{ev['action']:<10} → \"{text[:120]}\""
+                )
+                log_f.write(f"[{ev['gametime']}] {ev['action']} | {text}\n")
+                output.append({
+                    "minute"    : int(ev["minute"]),
+                    "half"      : ev["period"],
+                    "event_type": ev["action"],
+                    "player"    : ev["player"],
+                    "team"      : ev["team"],
+                    "ai_text"   : text,
+                })
+
+        with open(out_json, "w", encoding="utf-8") as f:
+            json.dump(output, f, indent=2, ensure_ascii=False)
+
+        print(f"\n  Saved {len(output)} entries → {out_json}\n")

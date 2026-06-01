@@ -111,6 +111,76 @@ def metric_c_bert(refs, hyps):
         return [None] * len(refs)
 
 
+# ── Parse ESPN CSV ────────────────────────────────────────────────────────
+
+def parse_espn_csv(path):
+    import csv
+    rows = []
+    with open(path) as f:
+        for row in csv.DictReader(f):
+            rows.append({
+                "half"       : int(row.get("half", 1)),
+                "minute"     : float(row.get("minute", 0)),
+                "event_type" : row.get("event_type", "").strip(),
+                "player"     : row.get("player", "").strip(),
+                "team"       : row.get("team", "").strip(),
+                "description": row.get("description", "").strip(),
+            })
+    return rows
+
+
+# ── Full ESPN coverage analysis ────────────────────────────────────────────
+
+def full_coverage_analysis(espn_events, ai_events, tol_min=1.5):
+    """
+    For every ESPN event, check if AI has a matching commentary
+    within tol_min minutes and same event_type.
+    Returns per-type breakdown + overall stats.
+    """
+    TYPE_MAP = {
+        "goal"        : "Goal",
+        "attempt"     : "Shot",
+        "shot"        : "Shot",
+        "corner"      : "Corner",
+        "foul"        : "Foul",
+        "substitution": "Substitution",
+        "offside"     : "Offside",
+        "yellow card" : "Foul",
+        "free kick"   : "Free_Kick",
+    }
+
+    type_stats = {}
+
+    for espn in espn_events:
+        raw_type = espn.get("event_type", "").lower()
+        ai_type  = TYPE_MAP.get(raw_type)
+        if not ai_type:
+            continue
+
+        if ai_type not in type_stats:
+            type_stats[ai_type] = {"espn": 0, "matched": 0, "missed": []}
+
+        type_stats[ai_type]["espn"] += 1
+
+        espn_min  = float(espn.get("minute", 0))
+        espn_half = int(espn.get("half", 1))
+        hit = any(
+            e["event_type"] == ai_type
+            and e["half"] == espn_half
+            and abs(e["minute"] - espn_min) <= tol_min
+            for e in ai_events
+        )
+
+        if hit:
+            type_stats[ai_type]["matched"] += 1
+        else:
+            type_stats[ai_type]["missed"].append(
+                f"{espn_half}H {espn_min:.0f}'  {espn.get('player','?')} ({espn.get('team','?')})"
+            )
+
+    return type_stats
+
+
 # ── CRR ───────────────────────────────────────────────────────────────────
 
 def crr(texts):
@@ -127,11 +197,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ai-log",     required=True)
     ap.add_argument("--human-json", required=True)
+    ap.add_argument("--espn-csv",   default=None)
     ap.add_argument("--output",     default="evaluation_report.txt")
     args = ap.parse_args()
 
     ai_events    = parse_ai_log(args.ai_log)
     human_events = json.loads(Path(args.human_json).read_text())
+    espn_events  = parse_espn_csv(args.espn_csv) if args.espn_csv else []
 
     results                  = []
     bert_refs, bert_hyps, bert_idx = [], [], []
@@ -222,6 +294,40 @@ def main():
     out.append(f"    Wrong player  : {wrong_player}/{matched_count}")
     out.append(f"    Wrong team    : {wrong_team}/{matched_count}")
     out.append(f"    Wrong outcome : {wrong_outcome}/{matched_count}")
+
+    # ── Full ESPN Coverage ────────────────────────────────────────────────
+    if espn_events:
+        cov = full_coverage_analysis(espn_events, ai_events)
+
+        out.append(f"\n{'─'*W}")
+        out.append("  FULL ESPN EVENT COVERAGE  (all events, not just sampled)")
+        out.append(f"{'─'*W}")
+        out.append(f"  {'Action':<16} {'ESPN':>6} {'AI matched':>10} {'Missed':>8}  Coverage")
+        out.append(f"  {'─'*14} {'─'*6} {'─'*10} {'─'*8}  {'─'*24}")
+
+        total_espn = total_matched = 0
+        for atype in ["Goal", "Shot", "Corner", "Foul", "Free_Kick", "Substitution", "Offside"]:
+            s   = cov.get(atype, {"espn": 0, "matched": 0, "missed": []})
+            pct = round(s["matched"] / s["espn"] * 100) if s["espn"] > 0 else 0
+            bar_str = f"{'█' * int(pct/5)}{'░' * (20 - int(pct/5))}"
+            out.append(f"  {atype:<16} {s['espn']:>6} {s['matched']:>10} "
+                       f"{s['espn']-s['matched']:>8}  {pct:>3}%  {bar_str}")
+            total_espn    += s["espn"]
+            total_matched += s["matched"]
+
+        overall_pct = round(total_matched / total_espn * 100) if total_espn else 0
+        out.append(f"  {'─'*14} {'─'*6} {'─'*10} {'─'*8}")
+        out.append(f"  {'TOTAL':<16} {total_espn:>6} {total_matched:>10} "
+                   f"{total_espn-total_matched:>8}  {overall_pct}% overall coverage")
+
+        out.append("\n  Missed events by type:")
+        for atype, s in cov.items():
+            if s["missed"]:
+                out.append(f"  {atype}:")
+                for m in s["missed"][:5]:
+                    out.append(f"    ✗  {m}")
+                if len(s["missed"]) > 5:
+                    out.append(f"    ... and {len(s['missed'])-5} more")
 
     # ── aggregate scores ──────────────────────────────────────────────────
     matched    = [r for r in results if r["matched"]]

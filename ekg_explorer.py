@@ -750,62 +750,182 @@ def find_path_to_match(g, start_uri: str) -> list:
 
 
 def build_neighborhood_graph(g, center_uri: str) -> str:
-    """2-hop pyvis graph centered on one node."""
-    try:
-        from pyvis.network import Network
-    except ImportError:
-        return None
+    """
+    Neo4j-style hierarchy: Match → Team → Player → Events.
+    Uses raw vis.js — no pyvis dependency.
+    Reification nodes and non-EKG predicates are filtered out.
+    """
+    EKG_PREDS = {
+        "IN_MATCH", "IS_PERFORMED_BY", "PERFORMED", "INVOLVED_IN",
+        "PLAYS_FOR", "PRECEDED_BY", "hasHomeTeam", "hasAwayTeam",
+        "PARTICIPATED_IN", "TRIGGERED",
+    }
+    SKIP_PREFIXES = ("plays_for_", "participated_in_", "card_for_",
+                     "involved_in_", "in_match_")
 
-    net = Network(height="500px", width="100%", bgcolor="#ffffff",
-                  font_color="#222222", directed=True)
-    net.barnes_hut(gravity=-8000, central_gravity=0.5,
-                   spring_length=100, spring_strength=0.05)
+    def glabel(uri_s):
+        u = URIRef(uri_s)
+        lbl = next((str(o) for o in g.objects(u, RDFS.label)), None) or \
+              next((str(o) for o in g.objects(u, FOAF.name)), None)
+        if lbl:
+            return lbl
+        s = short(uri_s)
+        if s.startswith("event_"):
+            tail = s.split("_")[-1].lstrip("0") or "0"
+            typ  = next((short(str(t)) for t in g.objects(u, RDF.type)
+                         if str(t).startswith(EKG_NS)), "Event")
+            return f"{typ} #{tail}"
+        return s
 
-    added = set()
+    def gtype(uri_s):
+        for t in g.objects(URIRef(uri_s), RDF.type):
+            s = short(str(t))
+            if s in ("Match", "Team", "Player"):
+                return s
+            if s.endswith("Event"):
+                return "Event"
+        return "Other"
 
-    def add_n(uri, label, color, size, title):
-        if str(uri) in added:
-            return
-        added.add(str(uri))
-        net.add_node(str(uri), label=label, color=color, size=size,
-                     title=title, font={"size": 11})
+    def is_noise(uri_s):
+        s = short(uri_s)
+        return any(s.startswith(p) for p in SKIP_PREFIXES)
 
-    def add_e(s, p_label, o, color="#aaaaaa"):
-        key = (str(s), str(o), p_label)
-        if str(s) in added and str(o) in added:
-            net.add_edge(str(s), str(o), label=p_label, color=color,
-                         font={"size": 9, "color": "#555"}, arrows="to", width=1.5)
+    # ── BFS 2-hop from center ─────────────────────────────────────────────
+    nodes_info = {}   # uri_str → {label, type, is_center}
+    raw_edges  = []   # (src, rel, dst) — strings
 
-    center = URIRef(center_uri)
-    center_label = next((str(o) for o in g.objects(center, RDFS.label)), short(center_uri))
-    add_n(center, center_label, "#FF6B35", 30, f"SELECTED: {center_uri}")
+    def add_node(uri_s, is_center=False):
+        if uri_s not in nodes_info and not is_noise(uri_s):
+            nodes_info[uri_s] = {"label": glabel(uri_s),
+                                  "type":  gtype(uri_s),
+                                  "is_center": is_center}
+            return True
+        return False
 
-    edge_colors = {
-        "IN_MATCH": "#4A90D9", "IS_PERFORMED_BY": "#2ECC71",
-        "PERFORMED": "#2ECC71", "INVOLVED_IN": "#E74C3C",
-        "PLAYS_FOR": "#8E44AD", "PRECEDED_BY": "#999",
-        "hasHomeTeam": "#E74C3C", "hasAwayTeam": "#E74C3C",
+    add_node(center_uri, is_center=True)
+    frontier = [center_uri]
+    visited  = {center_uri}
+
+    for _ in range(2):
+        nxt = []
+        for cur in frontier:
+            cur_uri = URIRef(cur)
+            for pred, obj in g.predicate_objects(cur_uri):
+                p = short(str(pred))
+                if p not in EKG_PREDS or not isinstance(obj, URIRef):
+                    continue
+                obj_s = str(obj)
+                if is_noise(obj_s):
+                    continue
+                add_node(obj_s)
+                raw_edges.append((cur, p, obj_s))
+                if obj_s not in visited:
+                    visited.add(obj_s)
+                    nxt.append(obj_s)
+            for subj, pred in g.subject_predicates(cur_uri):
+                p = short(str(pred))
+                if p not in EKG_PREDS or not isinstance(subj, URIRef):
+                    continue
+                subj_s = str(subj)
+                if is_noise(subj_s):
+                    continue
+                add_node(subj_s)
+                raw_edges.append((subj_s, p, cur))
+                if subj_s not in visited:
+                    visited.add(subj_s)
+                    nxt.append(subj_s)
+        frontier = nxt
+
+    # ── assign x,y by type ────────────────────────────────────────────────
+    LEVEL_Y = {"Match": 60, "Team": 200, "Player": 340, "Event": 480, "Other": 340}
+    TYPE_BG  = {"Match": "#3A86FF", "Team": "#E63946",
+                 "Player": "#F4A261", "Event": "#2DC653", "Other": "#6C757D"}
+    X_GAP = 200
+
+    by_type: dict = {}
+    for u, info in nodes_info.items():
+        by_type.setdefault(info["type"], []).append(u)
+
+    positions: dict = {}
+    for t, uris in by_type.items():
+        span = (len(uris) - 1) * X_GAP
+        for i, u in enumerate(uris):
+            positions[u] = (-span / 2 + i * X_GAP, LEVEL_Y.get(t, 340))
+
+    # ── build vis.js HTML ─────────────────────────────────────────────────
+    def js_str(s):
+        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+    node_js_list = []
+    for u, info in nodes_info.items():
+        x, y = positions.get(u, (0, 340))
+        bg   = "#FF6B35" if info["is_center"] else TYPE_BG.get(info["type"], "#6C757D")
+        lbl  = js_str(info["label"])
+        node_js_list.append(
+            f'{{id:"{js_str(u)}",label:"{lbl}",x:{x},y:{y},'
+            f'color:{{background:"{bg}",border:"rgba(255,255,255,0.3)",'
+            f'highlight:{{background:"{bg}",border:"#fff"}}}},'
+            f'font:{{color:"#fff",size:13,face:"Inter,sans-serif",bold:true}},'
+            f'shape:"dot",size:28,title:"{js_str(u)}",'
+            f'borderWidth:2,shadow:{{enabled:true,size:10,x:3,y:3,color:"rgba(0,0,0,0.4)}}"}}}'
+        )
+
+    EDGE_C = {
+        "IN_MATCH":"#3A86FF","IS_PERFORMED_BY":"#2DC653","PERFORMED":"#2DC653",
+        "INVOLVED_IN":"#E63946","PLAYS_FOR":"#9B59B6","PRECEDED_BY":"#7F8C8D",
+        "hasHomeTeam":"#E63946","hasAwayTeam":"#E63946",
+        "PARTICIPATED_IN":"#3A86FF","TRIGGERED":"#FF6B35",
     }
 
-    # outgoing
-    for pred, obj in g.predicate_objects(center):
-        if not isinstance(obj, URIRef) or pred == RDF.type:
+    seen_edges: set = set()
+    edge_js_list = []
+    for src, rel, dst in raw_edges:
+        key = (src, dst, rel)
+        if key in seen_edges or src not in nodes_info or dst not in nodes_info:
             continue
-        lbl = next((str(o) for o in g.objects(obj, RDFS.label)), short(str(obj)))
-        add_n(obj, lbl, node_color(g, obj), node_size(g, obj), str(obj))
-        add_e(center, short(pred), obj, edge_colors.get(short(pred), "#AAAAAA"))
+        seen_edges.add(key)
+        ec = EDGE_C.get(rel, "#AAAAAA")
+        edge_js_list.append(
+            f'{{from:"{js_str(src)}",to:"{js_str(dst)}",label:"{rel}",'
+            f'color:{{color:"{ec}",highlight:"#fff"}},'
+            f'font:{{size:10,color:"#ccc",strokeWidth:3,strokeColor:"#1a1a2e"}},'
+            f'arrows:"to",width:2,smooth:{{type:"curvedCW",roundness:0.1}}}}'
+        )
 
-    # incoming
-    for subj, pred in g.subject_predicates(center):
-        if not isinstance(subj, URIRef):
-            continue
-        lbl = next((str(o) for o in g.objects(subj, RDFS.label)), short(str(subj)))
-        add_n(subj, lbl, node_color(g, subj), node_size(g, subj), str(subj))
-        add_e(subj, short(pred), center, edge_colors.get(short(pred), "#AAAAAA"))
+    nodes_str = ",\n    ".join(node_js_list)
+    edges_str = ",\n    ".join(edge_js_list)
 
-    with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
-        net.save_graph(f.name)
-        return Path(f.name).read_text()
+    html = f"""<!DOCTYPE html><html><head>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  body{{margin:0;padding:0;background:#1a1a2e;}}
+  #graph{{width:100%;height:520px;}}
+  .legend{{position:absolute;top:10px;right:14px;font:11px Inter,sans-serif;color:#ccc;}}
+  .dot{{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle;}}
+</style></head>
+<body>
+<div id="graph"></div>
+<div class="legend">
+  <div><span class="dot" style="background:#3A86FF"></span>Match</div>
+  <div><span class="dot" style="background:#E63946"></span>Team</div>
+  <div><span class="dot" style="background:#FF6B35"></span>Selected</div>
+  <div><span class="dot" style="background:#F4A261"></span>Player</div>
+  <div><span class="dot" style="background:#2DC653"></span>Event</div>
+</div>
+<script>
+var nodes = new vis.DataSet([
+    {nodes_str}
+]);
+var edges = new vis.DataSet([
+    {edges_str}
+]);
+var net = new vis.Network(document.getElementById("graph"),
+    {{nodes:nodes, edges:edges}},
+    {{physics:{{enabled:false}},
+      interaction:{{hover:true,tooltipDelay:80,navigationButtons:false}},
+      nodes:{{borderWidth:2}}}});
+</script></body></html>"""
+    return html
 
 
 with tab_node:
@@ -898,7 +1018,4 @@ with tab_node:
     # ── neighborhood graph ───────────────────────────────────────────────────
     st.markdown("#### 🕸️ Neighborhood Graph")
     n_html = build_neighborhood_graph(g, selected)
-    if n_html is None:
-        st.error("pyvis not installed — run `pip install pyvis`")
-    else:
-        components.html(n_html, height=520, scrolling=False)
+    components.html(n_html, height=530, scrolling=False)

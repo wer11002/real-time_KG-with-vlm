@@ -258,23 +258,38 @@ def parse_match_folder(folder: Path):
 
 def find_match_folders(data_dir: Path) -> List[Path]:
     """
-    Find all valid match folders in data_dir, sorted by date (oldest first).
-    A valid match folder must contain a 720p.mp4 or 224p.mp4 file.
+    Find all valid match folders under data_dir, up to 3 levels deep.
+    Handles both flat layout (data/<match>/) and nested SoccerNet layout
+    (data/<league>/<season>/<match>/).
+
+    A valid match folder must:
+      - have a name that passes parse_match_folder() (starts with YYYY-MM-DD)
+      - contain 720p.mp4 or 224p.mp4
     """
     matches = []
-    for folder in sorted(data_dir.iterdir()):
-        if not folder.is_dir():
-            continue
-        info = parse_match_folder(folder)
-        if not info:
-            continue
-        # must have a video file
-        has_video = (folder / "720p.mp4").exists() or (folder / "224p.mp4").exists()
-        if not has_video:
-            continue
-        matches.append(folder)
 
-    return sorted(matches, key=lambda f: f.name)
+    def _scan(directory: Path, depth: int):
+        if depth > 3:
+            return
+        try:
+            entries = sorted(directory.iterdir())
+        except PermissionError:
+            return
+        for folder in entries:
+            if not folder.is_dir():
+                continue
+            if parse_match_folder(folder):
+                has_video = (folder / "720p.mp4").exists() or (folder / "224p.mp4").exists()
+                if has_video:
+                    matches.append(folder)
+                # don't recurse into a valid match folder
+            else:
+                _scan(folder, depth + 1)
+
+    _scan(data_dir, depth=1)
+    result = sorted(matches, key=lambda f: f.name)
+    print(f"  [find_match_folders] found {len(result)} valid match folder(s) under {data_dir}")
+    return result
 
 
 def get_video_path(match_folder: Path, prefer_720p: bool = True) -> Optional[Path]:

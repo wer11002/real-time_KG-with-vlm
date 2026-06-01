@@ -13,7 +13,17 @@ Usage:
 import argparse
 import json
 import re
+import unicodedata
 from pathlib import Path
+
+
+def _has_cjk(text: str) -> bool:
+    return any(
+        (unicodedata.category(c) in ('Lo',) and '一' <= c <= '鿿')
+        or '　' <= c <= '〿'
+        or '＀' <= c <= '￯'
+        for c in text
+    )
 
 PAST_REF_KEYWORDS = [
     "again", "second", "third", "another", "has been", "continues",
@@ -32,7 +42,7 @@ def parse_ai_log(path):
         if not m:
             continue
         half, mins, _, etype, text = m.groups()
-        if not text.strip().isascii():
+        if _has_cjk(text):
             continue
         events.append({
             "half"      : int(half),

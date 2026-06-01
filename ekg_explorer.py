@@ -397,10 +397,16 @@ with tab_search:
                             inst = instances_of(g, cls)
                             st.markdown(f"##### Instances: **{len(inst)}**")
                             if inst:
-                                for i in inst[:8]:
-                                    st.caption(f"• {short(i)}")
-                                if len(inst) > 8:
-                                    st.caption(f"…and {len(inst) - 8} more")
+                                rows = "".join(
+                                    f"<div style='padding:2px 0;font-size:13px;'>• {short(i)}</div>"
+                                    for i in sorted(inst, key=lambda x: short(x).lower())
+                                )
+                                st.html(
+                                    f"<div style='max-height:260px;overflow-y:auto;"
+                                    f"border:1px solid #e0e0e0;border-radius:6px;"
+                                    f"padding:8px 12px;background:#fafafa;'>"
+                                    f"{rows}</div>"
+                                )
 
                         # ── full-width T-Box flow diagram ─────────────────────
                         st.markdown("##### T-Box Schema Flow")

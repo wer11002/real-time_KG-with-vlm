@@ -9,7 +9,7 @@ Endpoints:
 
 Run:
   cd src/5_web_viz && python server.py
-  # or: cd src/5_web_viz && uvicorn server:app --port 8000
+  # or: cd src/5_web_viz && uvicorn server:app --port 8002
 """
 
 import asyncio
@@ -231,10 +231,10 @@ else:
     @app.get("/")
     async def dev_info():
         return JSONResponse({
-            "status": "backend running on :8000",
+            "status": "backend running on :8002",
             "next": "cd src/5_web_viz/frontend && npm install && npm run dev",
-            "api_graph": "http://localhost:8000/api/graph",
-            "ws": "ws://localhost:8000/ws",
+            "api_graph": "http://localhost:8002/api/graph",
+            "ws": "ws://localhost:8002/ws",
         })
 
 
@@ -244,4 +244,4 @@ if __name__ == "__main__":
     sys.path.insert(0, str(BASE_DIR))
     print(f"  Stream path : {STREAM_PATH}")
     print(f"  Frontend    : {DIST_DIR} ({'built' if DIST_DIR.exists() else 'run npm run dev'})")
-    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("server:app", host="0.0.0.0", port=8002, reload=False)

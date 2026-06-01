@@ -123,7 +123,7 @@ def parse_espn_csv(path: str) -> list[dict]:
     rows = []
     with open(path, encoding="utf-8") as f:
         for row in _csv.DictReader(f):
-            raw_time = row.get("Time", "0").strip()
+            raw_time = row.get("Time", "0").strip().rstrip("'")
             try:
                 t = float(raw_time)
             except ValueError:

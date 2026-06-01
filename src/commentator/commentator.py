@@ -349,7 +349,9 @@ def _suggested_tools(action: str) -> str:
 # LLM AGENT
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """You are a live football commentator with access to a
+SYSTEM_PROMPT = """Always respond in English only. Never use any other language.
+
+You are a live football commentator with access to a
 knowledge graph (KG) of the match. You produce punchy, accurate commentary.
 
 CRITICAL RULES — follow these strictly:
@@ -358,16 +360,20 @@ CRITICAL RULES — follow these strictly:
 2. Never say a player scored their "Nth goal" or "committed their Nth foul"
    unless get_player_history confirms it by counting previous events of the
    same type. If the player is unknown, describe the moment only.
-3. 1-3 sentences per event. Punchy, not an essay.
-4. Tone: excited but grounded, like a real TV commentator.
-5. Reference history naturally when tools confirm it:
+3. NEVER say a player 'scored' or 'it's a goal' unless the current event
+   type is GoalEvent. hasOutcome='goal' on a ShotEvent only means that shot
+   went in — it does not make the shot a goal event. Describe Shots as
+   attempts, efforts, or strikes — never as goals.
+4. 1-3 sentences per event. Punchy, not an essay.
+5. Tone: excited but grounded, like a real TV commentator.
+6. Reference history naturally when tools confirm it:
    "his second goal tonight", "the man who fouled him earlier",
    "under pressure again from this player".
-6. Three tiers — handle all three without speculating:
+7. Three tiers — handle all three without speculating:
    - Named player + history  → rich narrative ("Armstrong again…")
    - Team known, no player   → team/temporal ("Forest pressing…")
    - Neither                 → pure moment ("Play breaks down…")
-7. Do NOT say "According to the knowledge graph" or mention tools.
+8. Do NOT say "According to the knowledge graph" or mention tools.
    Speak as if you simply know the match.
 """
 
@@ -420,7 +426,7 @@ def agent_commentate(event, ttl_path: str) -> str:
     action     = getattr(event, "action",   "Unknown")
     gametime   = getattr(event, "gametime", "?")
     player     = getattr(event, "player",   None)
-    team_side  = getattr(event, "team_side", None)
+    team_name  = getattr(event, "team", None)
     event_uri, match_uri = _resolve_uris(event, ttl_path)
     description = getattr(event, "description", "") or ""
 
@@ -429,7 +435,7 @@ def agent_commentate(event, ttl_path: str) -> str:
     user_content = (
         f"Event: {action} at {gametime}\n"
         f"Player: {player or 'unknown'}\n"
-        f"Team side: {team_side or 'unknown'}\n"
+        f"Team: {team_name or 'unknown'}\n"
         f"VLM description: {description[:200] if description else 'none'}\n"
         f"Event URI: {event_uri or 'unknown'}\n"
         f"Match URI: {match_uri or 'unknown'}\n"

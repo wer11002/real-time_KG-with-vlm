@@ -69,6 +69,57 @@ def parse_ai_log(path):
     return events
 
 
+# ── Multi-match shared-log splitting ───────────────────────────────────────
+
+MATCH_HEADER_RE = re.compile(r"^=== MATCH:\s*(.+?)\s*===\s*$")
+
+
+def split_log_by_match(path: str | Path) -> dict[str, list[dict]]:
+    """
+    Parse a shared commentary_log.txt into per-match event lists, keyed by
+    match folder name. Match boundaries are written by
+    commentator.log_match_boundary() as: '=== MATCH: <folder name> ==='.
+
+    If the log has no headers, returns {"__unsplit__": [all events]}.
+    """
+    path     = Path(path)
+    sections : dict[str, list[str]] = {}
+    current  = None
+    if not path.exists():
+        return {}
+
+    for line in path.read_text(errors="ignore").splitlines():
+        hdr = MATCH_HEADER_RE.match(line.strip())
+        if hdr:
+            current = hdr.group(1).strip()
+            sections.setdefault(current, [])
+            continue
+        if current is None:
+            sections.setdefault("__unsplit__", []).append(line)
+        else:
+            sections[current].append(line)
+
+    pattern = re.compile(r"\[(\d+)(?:st|nd)\s+(\d+):(\d+)\]\s+(\w+)\s+\|(.+)")
+    result  : dict[str, list[dict]] = {}
+    for name, lines in sections.items():
+        evs = []
+        for line in lines:
+            m = pattern.match(line.strip())
+            if not m:
+                continue
+            half, mins, _, etype, text = m.groups()
+            if _has_cjk(text):
+                continue
+            evs.append({
+                "half"      : int(half),
+                "minute"    : int(mins),
+                "event_type": etype.strip(),
+                "full_text" : text.strip(),
+            })
+        result[name] = evs
+    return result
+
+
 # ── Find closest AI match (±2 min, same half + event type) ────────────────
 
 def find_match(human, ai_events, tol=2.0):
@@ -672,32 +723,52 @@ def _print_aggregate_table(summaries: list[dict], out_path: Path):
 
 # ── AI event loader (JSON or text-log fallback) ───────────────────────────
 
-def _load_ai_events(json_path: Path, log_fallback: Path) -> list[dict]:
+def _raw_to_json_events(raw: list[dict]) -> list[dict]:
+    return [{
+        "minute"    : float(e["minute"]),
+        "half"      : int(e["half"]),
+        "event_type": e["event_type"],
+        "player"    : "",
+        "team"      : "",
+        "human_text": e["full_text"],
+    } for e in raw]
+
+
+def _load_ai_events(
+    json_path    : Path,
+    log_fallback : Path,
+    match_name   : str | None = None,
+    shared_index : dict[str, list[dict]] | None = None,
+) -> list[dict]:
     """
-    Try to load AI events from json_path first.
-    If not found, fall back to log_fallback (commentary_log.txt) and
-    convert parse_ai_log() output to the same dict format as JSON files.
+    Resolution order:
+      1. per-match ai_commentary.json (json_path)
+      2. per-match commentary_log.txt (sibling of json_path)
+      3. shared_index[match_name] — pre-split section of the shared log
+      4. shared log file with no headers (only if no match_name filter)
     """
     if json_path.exists():
         print(f"  Loading AI events from {json_path.name}")
         return parse_json_commentary(json_path)
 
-    if log_fallback.exists():
+    per_match_log = json_path.parent / "commentary_log.txt"
+    if per_match_log.exists():
+        print(f"  Loading AI events from per-match log: {per_match_log.name}")
+        return _raw_to_json_events(parse_ai_log(str(per_match_log)))
+
+    if match_name and shared_index is not None:
+        section = shared_index.get(match_name)
+        if section:
+            print(f"  Loading AI events from shared log section [{match_name}] "
+                  f"({len(section)} events)")
+            return _raw_to_json_events(section)
+        print(f"  [warn] No section '{match_name}' in shared log "
+              f"(headers found: {list(shared_index.keys())[:3]}…)")
+        return []
+
+    if log_fallback.exists() and not match_name:
         print(f"  {json_path.name} not found — falling back to {log_fallback}")
-        raw = parse_ai_log(str(log_fallback))
-        # convert text-log format → JSON commentary format
-        converted = []
-        for e in raw:
-            converted.append({
-                "minute"    : float(e["minute"]),
-                "half"      : int(e["half"]),
-                "event_type": e["event_type"],
-                "player"    : "",
-                "team"      : "",
-                "human_text": e["full_text"],
-            })
-        print(f"  Converted {len(converted)} events from text log")
-        return converted
+        return _raw_to_json_events(parse_ai_log(str(log_fallback)))
 
     return []
 
@@ -734,23 +805,38 @@ def main():
 
     # ── MODE A: --all  ───────────────────────────────────────────────────
     if args.all:
-        # Accept folders that have GT JSON + either AI JSON or the shared text log
-        shared_log = OUT_DIR / "commentary_log.txt"
+        shared_log   = OUT_DIR / "commentary_log.txt"
+        shared_index = split_log_by_match(shared_log) if shared_log.exists() else {}
+        if shared_index:
+            headed = [k for k in shared_index if k != "__unsplit__"]
+            unsplit_n = len(shared_index.get("__unsplit__", []))
+            print(f"  Shared log: {len(headed)} match section(s)"
+                  + (f", {unsplit_n} pre-header lines" if unsplit_n else ""))
+
+        # Folder qualifies if it has GT + (per-match JSON OR per-match log OR a section in shared log)
         folders = sorted(
             f for f in DATA_DIR.iterdir()
             if f.is_dir() and (f / args.gt_file).exists()
-            and ((f / args.ai_file).exists() or shared_log.exists())
+            and (
+                (f / args.ai_file).exists()
+                or (f / "commentary_log.txt").exists()
+                or f.name in shared_index
+            )
         )
         if not folders:
             print(f"No match folders found under {DATA_DIR} with '{args.gt_file}'.")
-            print(f"Also checked for fallback log: {shared_log}")
+            print(f"Also checked per-match logs and shared log: {shared_log}")
             return
 
         print(f"Found {len(folders)} match folder(s).\n")
         summaries = []
         for folder in folders:
             gt_events = parse_json_commentary(folder / args.gt_file)
-            ai_events = _load_ai_events(folder / args.ai_file, shared_log)
+            ai_events = _load_ai_events(
+                folder / args.ai_file, shared_log,
+                match_name   = folder.name,
+                shared_index = shared_index,
+            )
             if not ai_events:
                 print(f"  [skip] No AI events for {folder.name}")
                 continue
@@ -775,8 +861,13 @@ def main():
             print(f"GT file not found: {gt_path}")
             return
 
-        shared_log = OUT_DIR / "commentary_log.txt"
-        ai_events  = _load_ai_events(folder / args.ai_file, shared_log)
+        shared_log   = OUT_DIR / "commentary_log.txt"
+        shared_index = split_log_by_match(shared_log) if shared_log.exists() else {}
+        ai_events    = _load_ai_events(
+            folder / args.ai_file, shared_log,
+            match_name   = folder.name,
+            shared_index = shared_index,
+        )
         if not ai_events:
             print("No AI commentary found. Run the pipeline first to generate commentary.")
             return

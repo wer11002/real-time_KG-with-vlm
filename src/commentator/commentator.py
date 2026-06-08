@@ -522,6 +522,8 @@ def _commentator_loop(ttl_path: str):
             _handle_event(event, ttl_path)
         except Exception:
             traceback.print_exc()
+        finally:
+            event_queue.task_done()
 
 
 def start_commentator(ttl_path: str):
@@ -529,6 +531,22 @@ def start_commentator(ttl_path: str):
     t = threading.Thread(target=_commentator_loop, args=(ttl_path,), daemon=True)
     t.start()
     print(f"[commentator] started → {ttl_path}")
+
+
+def log_match_boundary(match_name: str, log_path: Path | None = None):
+    """
+    Write a section header to the shared log so multi-match runs can be
+    split per-match by evaluate_commentary.py. Drain any pending events
+    first so the boundary lands after the previous match's commentary.
+    """
+    try:
+        event_queue.join()   # wait for queued events to be written
+    except Exception:
+        pass
+    target = Path(log_path) if log_path else LOG_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "a", encoding="utf-8") as f:
+        f.write(f"\n=== MATCH: {match_name} ===\n")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

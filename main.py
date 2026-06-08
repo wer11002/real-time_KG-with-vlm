@@ -47,7 +47,7 @@ from align             import align_buffer, summarize
 from kg_builder        import (
     EKG_Graph, ingest_matched_event, prepopulate_roster, TTL_PATH, clear_stream
 )
-from commentator       import event_queue, start_commentator
+from commentator       import event_queue, start_commentator, log_match_boundary
 
 DATA_DIR      = BASE_DIR / "data"
 CLIP_DURATION = 60
@@ -625,6 +625,8 @@ def run_pipeline(
         print(f"\n\n{'█'*70}")
         print(f"  MATCH {i}/{len(match_folders)}: {folder.name}")
         print(f"{'█'*70}")
+
+        log_match_boundary(folder.name)
 
         summary = run_match(
             match_folder   = folder,

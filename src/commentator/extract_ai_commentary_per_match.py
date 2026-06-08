@@ -34,7 +34,29 @@ LOG_PATH  = DATA_DIR / "commentator_output" / "commentary_log.txt"
 LOG_LINE = re.compile(
     r"\[(\d+)(?:st|nd|rd|th)\s+(\d+):(\d+)\]\s+(\w+)\s+\|\s*(.+)"
 )
+GAMETIME_RE = re.compile(r"(\d+)(?:st|nd|rd|th)\s+(\d+):(\d+)")
 TOL_MIN  = 1   # minute tolerance when pairing KG events with log lines
+
+
+def _half_minute_from_gametime(gametime: str) -> tuple[int, int]:
+    """Parse '1st 18:05' → (1, 18). Returns (0, 0) on failure."""
+    m = GAMETIME_RE.search(str(gametime))
+    if not m:
+        return 0, 0
+    return int(m.group(1)), int(m.group(2))
+
+
+def _coerce_int(value, fallback: int) -> int:
+    """int(Literal) but tolerant of bogus boolean/string values."""
+    if value is None:
+        return fallback
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return fallback
 
 
 # ── log parsing ────────────────────────────────────────────────────────────
@@ -108,17 +130,34 @@ def load_events_for_match(g: Graph, match_uri: str) -> list[dict]:
     ORDER BY ?period ?minute ?gametime ?e
     """ % match_uri
 
-    events = []
+    events  = []
+    bad_per = bad_min = 0
     for r in g.query(q):
+        gametime           = str(r.gametime) if r.gametime else ""
+        gt_half, gt_minute = _half_minute_from_gametime(gametime)
+
+        half   = _coerce_int(r.period, gt_half)
+        minute = _coerce_int(r.minute, gt_minute)
+
+        if half not in (1, 2):
+            bad_per += 1
+            half = gt_half if gt_half in (1, 2) else 1
+        if not gametime and minute == 0 and gt_minute == 0:
+            bad_min += 1
+
         events.append({
             "uri"       : str(r.e),
             "event_type": str(r.type),
-            "minute"    : int(float(r.minute)),
-            "half"      : int(r.period),
-            "gametime"  : str(r.gametime),
+            "minute"    : minute,
+            "half"      : half,
+            "gametime"  : gametime,
             "player"    : str(r.playerLabel) if r.playerLabel else "",
             "team"      : str(r.teamLabel)   if r.teamLabel   else "",
         })
+
+    if bad_per or bad_min:
+        print(f"    [warn] {bad_per} event(s) had non-integer hasPeriod, "
+              f"{bad_min} had unparseable minute — recovered from hasTime")
     return events
 
 

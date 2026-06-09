@@ -186,6 +186,45 @@ def _lookup_by_folder(folder_name: str, table: dict):
 # SOURCE 1 — Sky Sports
 # ════════════════════════════════════════════════════════════════════
 
+SKY_SELECTORS = [
+    "div.sdc-article-body",
+    "div.sdc-site-article__body",
+    "div.article__body",
+    "article",
+    "div.page-content",
+]
+
+
+def _extract_sky_text(html: str) -> str:
+    """
+    Try each Sky selector in order and keep the one that yields the
+    longest cleaned text. If every selector misses, concatenate all <p>
+    tags inside <main>. Returns "" when nothing usable is found.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    best = ""
+    for sel in SKY_SELECTORS:
+        node = soup.select_one(sel)
+        if not node:
+            continue
+        text = "\n".join(
+            line.strip()
+            for line in node.get_text("\n").splitlines()
+            if line.strip()
+        )
+        if len(text) > len(best):
+            best = text
+    if best:
+        return best
+    main = soup.find("main")
+    if main:
+        paras = [p.get_text(strip=True) for p in main.find_all("p")]
+        paras = [p for p in paras if p]
+        if paras:
+            return "\n".join(paras)
+    return ""
+
+
 def scrape_sky(folder: Path) -> dict:
     out_path = folder / "groundtruth_sources" / "sky_report.txt"
     entry    = _lookup_by_folder(folder.name, SKY_KNOWN_IDS)
@@ -194,30 +233,46 @@ def scrape_sky(folder: Path) -> dict:
                 "reason": "no Sky entry — add to SKY_KNOWN_IDS"}
 
     sky_slug, gid = entry
-    # New URL format includes a /report/ segment; fall back to the older
-    # short form if the page returns 404.
+    # Sky migrated their match-report URLs over the years. Try the
+    # report path first, then the bare ID path, then the preview path
+    # (preview pages typically have ~600-1200 words of build-up text).
     urls = [
         f"https://www.skysports.com/football/{sky_slug}/report/{gid}",
         f"https://www.skysports.com/football/{sky_slug}/{gid}",
+        f"https://www.skysports.com/football/{sky_slug}/preview/{gid}",
     ]
 
+    last_html = None
+    last_url  = None
     for url in urls:
         code, html = fetch(url)
         time.sleep(SLEEP_BETWEEN)
+        # Inline diagnostic so failing runs explain themselves.
+        title = ""
+        if html:
+            t = BeautifulSoup(html, "lxml").find("title")
+            title = t.get_text(strip=True) if t else ""
+        print(f"  [sky-debug] {url} → status={code} "
+              f"bytes={len(html) if html else 0} title={title[:60]!r}")
         if code != 200 or not html:
             continue
-        text = extract_text(html, [
-            ".sdc-site-article",
-            ".page-content",
-            "article",
-            ".article-body",
-        ])
-        if not text:
-            continue
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(text, encoding="utf-8")
-        return {"status": "ok", "url": url, "bytes": len(text)}
+        last_html = html
+        last_url  = url
+        text = _extract_sky_text(html)
+        if text and len(text) > 200:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(text, encoding="utf-8")
+            return {"status": "ok", "url": url, "bytes": len(text)}
 
+    # We hit 200 but every selector returned nothing — save the raw
+    # HTML so you can grep for the real article container manually.
+    if last_html:
+        debug_path = folder / "groundtruth_sources" / "sky_DEBUG.html"
+        debug_path.parent.mkdir(parents=True, exist_ok=True)
+        debug_path.write_text(last_html, encoding="utf-8")
+        return {"status"    : "no_content",
+                "url"       : last_url,
+                "debug_html": str(debug_path)}
     return {"status": "blocked_or_404", "tried": urls}
 
 
@@ -304,13 +359,24 @@ def scrape_bbc(folder: Path, bbc_ids: dict[str, int]) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════════
-# SOURCE 3 — ESPN full commentary
+# SOURCE 3 — ESPN full commentary (JSON API)
 # ════════════════════════════════════════════════════════════════════
+# The /soccer/commentary/_/gameId/<id> HTML page is a React shell with
+# no commentary in the initial markup, so the old HTML parser returned
+# zero hits. We hit ESPN's public site.api.espn.com summary endpoint
+# instead, which serves the full commentary as JSON.
+
+ESPN_API_URL = ("https://site.api.espn.com/apis/site/v2/"
+                "sports/soccer/eng.2/summary?event={gid}")
+
+# Candidate IDs to probe when ESPN_GAME_IDS doesn't list a match
+# (currently only Middlesbrough vs Preston is unknown).
+ESPN_PROBE_IDS = (544475, 544476, 544477, 544478, 544481, 544483, 544486)
+
 
 def _minute_absolute(raw: str) -> int | None:
-    """ESPN minute strings: "63'" → 63, "45'+2'" → 47. Returns None if
-    the string can't be parsed."""
-    s = re.sub(r"[^\d+]", "", raw)
+    """'63'' → 63, '45'+2'' → 47, '90+3' → 93."""
+    s = re.sub(r"[^\d+]", "", str(raw))
     if not s:
         return None
     if "+" in s:
@@ -326,9 +392,8 @@ def _minute_absolute(raw: str) -> int | None:
 
 
 def _event_type_from_text(text: str) -> str:
-    """Heuristic mapping from the first words of a commentary line to
-    one of our 7 KG action types (or YellowCard/RedCard/Other)."""
-    t = text.strip().lower()
+    """First-words heuristic — used when ESPN's `type.text` is absent."""
+    t    = text.strip().lower()
     head = t[:60]
     if t.startswith("goal"):
         return "Goal"
@@ -351,93 +416,134 @@ def _event_type_from_text(text: str) -> str:
     return "Other"
 
 
-def _parse_espn_commentary(html: str) -> list[dict]:
+def _normalize_event_type(type_text: str, full_text: str) -> str:
+    """Map ESPN's type.text (e.g. 'Attempt Saved', 'Goal', 'Yellow Card')
+    to one of our KG action types. Falls back to text-based heuristic
+    if no obvious keyword fires."""
+    t = (type_text or "").lower()
+    if "goal" in t and "no goal" not in t:
+        return "Goal"
+    if "yellow" in t:
+        return "YellowCard"
+    if "red" in t and "card" in t:
+        return "RedCard"
+    if "attempt" in t or "shot" in t or "header" in t:
+        return "Shot"
+    if "foul" in t:
+        return "Foul"
+    if "corner" in t:
+        return "Corner"
+    if "free kick" in t or "free-kick" in t:
+        return "Free_Kick"
+    if "substitut" in t:
+        return "Substitution"
+    if "offside" in t:
+        return "Offside"
+    return _event_type_from_text(full_text)
+
+
+def _fetch_espn_json(gid: int) -> tuple[int, dict | None]:
+    """GET the summary JSON for one ESPN game ID. (status, parsed_json)."""
+    url = ESPN_API_URL.format(gid=gid)
+    try:
+        r = requests.get(url, headers={"User-Agent": UA},
+                         timeout=REQ_TIMEOUT)
+        if r.status_code != 200:
+            return r.status_code, None
+        return 200, r.json()
+    except Exception:
+        return 0, None
+
+
+def _extract_team_names(data: dict) -> list[str]:
+    """Pull team display names out of the summary's header.competitions."""
+    names = []
+    for comp in (data.get("header", {}) or {}).get("competitions", []):
+        for c in comp.get("competitors", []) or []:
+            team = c.get("team", {}) or {}
+            for k in ("displayName", "name", "shortDisplayName", "abbreviation"):
+                v = team.get(k)
+                if v:
+                    names.append(str(v))
+    return names
+
+
+def _parse_espn_json_commentary(data: dict) -> list[dict]:
     """
-    ESPN soccer commentary pages have shifted markup over the years.
-    We try several selector patterns in order. Each strategy yields
-    (minute_string, body_text) pairs.
+    Find the commentary list inside ESPN's summary JSON. The current API
+    nests it under 'commentary'; older variants used 'plays' or
+    'header.competitions[0].details'. Each entry has type, text,
+    clock, and period.
     """
-    soup = BeautifulSoup(html, "lxml")
-    pairs: list[tuple[str, str]] = []
+    candidates: list = []
+    if isinstance(data.get("commentary"), list):
+        candidates = data["commentary"]
+    elif isinstance(data.get("plays"), list):
+        candidates = data["plays"]
+    else:
+        for comp in (data.get("header", {}) or {}).get("competitions", []):
+            details = comp.get("details")
+            if isinstance(details, list):
+                candidates = details
+                break
 
-    # Strategy A — modern container with class containing "ommentary".
-    selectors = [
-        ".commentary-item",
-        ".game-comments-item",
-        ".CommentaryItem",
-        ".match-commentary-item",
-        "[class*='CommentaryItem']",
-    ]
-    for sel in selectors:
-        for node in soup.select(sel):
-            time_el = node.find(class_=re.compile(r"(time|minute|min)", re.I))
-            body_el = node.find(class_=re.compile(r"(text|body|desc|comment)", re.I))
-            if not time_el:
-                continue
-            if not body_el:
-                # try the largest text child
-                body_el = max(node.find_all(["p", "div", "span"]),
-                              key=lambda n: len(n.get_text(strip=True)),
-                              default=None)
-            if not body_el:
-                continue
-            minute_str = time_el.get_text(strip=True)
-            body       = body_el.get_text(" ", strip=True)
-            if minute_str and body and body != minute_str:
-                pairs.append((minute_str, body))
-        if pairs:
-            break
-
-    # Strategy B — generic <li> with a time-ish span + body span.
-    if not pairs:
-        for li in soup.select("li, tr"):
-            time_el = li.find(class_=re.compile(r"time|minute", re.I))
-            body_el = li.find(class_=re.compile(r"text|body|desc", re.I))
-            if time_el and body_el:
-                pairs.append((time_el.get_text(strip=True),
-                              body_el.get_text(" ", strip=True)))
-
-    # Strategy C — last resort regex over visible text.
-    if not pairs:
-        visible = soup.get_text(" ", strip=True)
-        for m in re.finditer(r"(\d+\s*'(?:\s*\+\s*\d+\s*')?)\s+"
-                              r"([A-Z][^.!?]{20,300}[.!?])",
-                              visible):
-            pairs.append((m.group(1), m.group(2)))
-
-    # Convert to output dicts.
-    out = []
-    for minute_str, body in pairs:
-        abs_min = _minute_absolute(minute_str)
-        if abs_min is None:
+    out: list[dict] = []
+    for entry in candidates:
+        if not isinstance(entry, dict):
             continue
+        text = (entry.get("text") or "").strip()
+        if not text:
+            continue
+
+        clock      = entry.get("clock")  if isinstance(entry.get("clock"),  dict) else {}
+        period     = entry.get("period") if isinstance(entry.get("period"), dict) else {}
+        etype      = entry.get("type")   if isinstance(entry.get("type"),   dict) else {}
+        clock_val  = clock.get("value")
+        clock_disp = clock.get("displayValue", "")
+
+        try:
+            period_num = int(period.get("number", 1))
+        except (TypeError, ValueError):
+            period_num = 1
+
+        if isinstance(clock_val, (int, float)):
+            abs_min = int(clock_val)
+        else:
+            abs_min = _minute_absolute(clock_disp) or 0
+
+        minute_str = clock_disp or f"{abs_min}'"
+        guess = _normalize_event_type(etype.get("text", ""), text)
+
         out.append({
             "minute"          : minute_str,
             "minute_absolute" : abs_min,
-            "text"            : body,
-            "event_type_guess": _event_type_from_text(body),
+            "period"          : period_num,
+            "text"            : text,
+            "event_type_guess": guess,
         })
     return out
 
 
-def _discover_espn_id(date: str, t1: str, t2: str) -> int | None:
+def _discover_espn_id_via_api(t1: str, t2: str) -> int | None:
     """
-    Last-resort ESPN ID discovery for matches not in ESPN_GAME_IDS.
-    Reuses the existing ESPN scraper in src/2_web_scraper/espn_scraper.py
-    which already knows how to search ESPN's listing pages.
+    Try each ID in ESPN_PROBE_IDS against the summary API and confirm
+    the response's competitors contain both team names. Returns the
+    first match or None.
     """
-    try:
-        sys.path.insert(0, str(BASE_DIR / "src" / "2_web_scraper"))
-        from espn_scraper import ESPNScraper
-        scraper = ESPNScraper()
-        n = scraper.find_and_load(date, t1, t2)
-        if n > 0:
-            for attr in ("game_id", "_game_id", "match_id"):
-                v = getattr(scraper, attr, None)
-                if v is not None:
-                    return int(v)
-    except Exception as e:
-        print(f"  [espn-discover] failed: {e}")
+    t1_tokens = [w for w in re.split(r"\W+", t1.lower()) if len(w) > 3]
+    t2_tokens = [w for w in re.split(r"\W+", t2.lower()) if len(w) > 3]
+    print(f"  [espn-discover] probing {len(ESPN_PROBE_IDS)} IDs for {t1} vs {t2} …")
+    for gid in ESPN_PROBE_IDS:
+        code, data = _fetch_espn_json(gid)
+        time.sleep(SLEEP_BETWEEN)
+        if code != 200 or not isinstance(data, dict):
+            continue
+        teams_lc = " ".join(_extract_team_names(data)).lower()
+        if (any(w in teams_lc for w in t1_tokens) and
+            any(w in teams_lc for w in t2_tokens)):
+            print(f"  [espn-discover] → matched gameId {gid}")
+            return gid
+    print(f"  [espn-discover] no probe ID matched")
     return None
 
 
@@ -445,27 +551,38 @@ def scrape_espn(folder: Path, date: str, t1: str, t2: str) -> dict:
     out_path = folder / "groundtruth_sources" / "espn_full_commentary.json"
     gid      = _lookup_by_folder(folder.name, ESPN_GAME_IDS)
     if not gid:
-        print(f"  [espn] no hardcoded ID — discovering via espn_scraper …")
-        gid = _discover_espn_id(date, t1, t2)
+        gid = _discover_espn_id_via_api(t1, t2)
     if not gid:
         return {"status": "not_found",
                 "reason": "no ESPN game ID hardcoded or discoverable"}
 
-    url        = f"https://www.espn.com/soccer/commentary/_/gameId/{gid}"
-    code, html = fetch(url)
+    url        = ESPN_API_URL.format(gid=gid)
+    code, data = _fetch_espn_json(gid)
     time.sleep(SLEEP_BETWEEN)
-    if code != 200 or not html:
+    if code != 200 or not isinstance(data, dict):
         return {"status": "blocked_or_404", "url": url,
-                "error": f"HTTP {code}"}
-    items = _parse_espn_commentary(html)
+                "error":  f"HTTP {code}"}
+
+    items = _parse_espn_json_commentary(data)
     if not items:
-        return {"status": "no_content", "url": url,
-                "reason": "parser found 0 commentary items"}
+        # Persist the raw response so the JSON shape can be inspected.
+        debug_path = folder / "groundtruth_sources" / "espn_DEBUG.json"
+        debug_path.parent.mkdir(parents=True, exist_ok=True)
+        debug_path.write_text(json.dumps(data, indent=2, ensure_ascii=False),
+                              encoding="utf-8")
+        return {"status"    : "no_content",
+                "url"       : url,
+                "game_id"   : gid,
+                "debug_json": str(debug_path),
+                "top_keys"  : list(data.keys())[:12]}
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(items, indent=2, ensure_ascii=False),
                         encoding="utf-8")
-    return {"status": "ok", "url": url,
-            "game_id": gid, "lines": len(items)}
+    return {"status" : "ok",
+            "url"    : url,
+            "game_id": gid,
+            "lines"  : len(items)}
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -684,19 +801,25 @@ def print_aggregate(rows: list[tuple[str, dict]]):
     print(f"  {'─'*42} {'─'*4} {'─'*4} {'─'*18}")
 
     sky_ok = bbc_ok = espn_ok = 0
+    sky_chars = bbc_chars = espn_lines = 0
     for name, status in rows:
         sky  = status.get("sky")  or {}
         bbc  = status.get("bbc")  or {}
         espn = status.get("espn") or {}
-        sky_mark  = "✓" if sky.get("status")  == "ok" else "—"
-        bbc_mark  = "✓" if bbc.get("status")  == "ok" else "—"
+        sky_mark = "✓" if sky.get("status")  == "ok" else "—"
+        bbc_mark = "✓" if bbc.get("status")  == "ok" else "—"
         if espn.get("status") == "ok":
-            espn_mark = f"✓ ({espn.get('lines', 0)} lines)"
-            espn_ok  += 1
+            espn_mark   = f"✓ ({espn.get('lines', 0)} lines)"
+            espn_ok    += 1
+            espn_lines += int(espn.get("lines", 0))
         else:
             espn_mark = "—"
-        if sky.get("status")  == "ok": sky_ok  += 1
-        if bbc.get("status")  == "ok": bbc_ok  += 1
+        if sky.get("status") == "ok":
+            sky_ok    += 1
+            sky_chars += int(sky.get("bytes", 0))
+        if bbc.get("status") == "ok":
+            bbc_ok    += 1
+            bbc_chars += int(bbc.get("bytes", 0))
         print(f"  {_short_name(name)[:42]:<42} "
               f"{sky_mark:>4} {bbc_mark:>4} {espn_mark:<18}")
 
@@ -704,6 +827,11 @@ def print_aggregate(rows: list[tuple[str, dict]]):
     print(f"  {'─'*42} {'─'*4} {'─'*4} {'─'*18}")
     print(f"  {'Total':<42} {f'{sky_ok}/{total}':>4} "
           f"{f'{bbc_ok}/{total}':>4} {f'{espn_ok}/{total}':<18}")
+
+    print(f"\n  Total raw commentary fetched:")
+    print(f"    Sky reports     : {sky_chars:>9,} chars")
+    print(f"    BBC reports     : {bbc_chars:>9,} chars")
+    print(f"    ESPN commentary : {espn_lines:>9,} entries")
 
 
 # ════════════════════════════════════════════════════════════════════

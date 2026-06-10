@@ -71,18 +71,28 @@ def load_model():
 
     print(f"  [model] loading {MODEL_NAME}...")
 
+    from pathlib import Path
     from transformers import Qwen3VLMoeForConditionalGeneration, AutoProcessor
 
     _device    = "cuda" if torch.cuda.is_available() else "cpu"
     _processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    _model     = Qwen3VLMoeForConditionalGeneration.from_pretrained(
+
+    # Qwen3-VL-30B MoE needs an explicit offload_folder when device_map="auto"
+    # decides to spill some experts to disk (happens on shared-memory chips
+    # like Grace-Blackwell where another process holds part of unified RAM).
+    offload_dir = Path("data/model_offload")
+    offload_dir.mkdir(parents=True, exist_ok=True)
+
+    _model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
         MODEL_NAME,
         torch_dtype       = torch.float16 if _device == "cuda" else torch.float32,
         device_map        = "auto",
+        offload_folder    = str(offload_dir),
+        offload_state_dict= True,
         trust_remote_code = True,
     )
     _model.eval()
-    print(f"  [model] loaded on {_device} ✓")
+    print(f"  [model] loaded on {_device} ✓  (offload dir: {offload_dir})")
 
     return _model, _processor, _device
 

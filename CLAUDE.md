@@ -51,7 +51,9 @@ Video File (720p / 224p)
     │         Sorted by exact timestamp [MM:SS], saved as .txt and .json
     │
     └──► [6b] KG Builder    src/4_kg_builder/kg_builder.py
-              RDF graph     data/ekg.ttl
+              RDF graph     Loads T-Box from ekg_tbox.ttl at startup,
+                            writes A-Box with single-leaf-class typing
+                            → data/kg_output/ekg.ttl
 ```
 
 ---
@@ -86,8 +88,8 @@ ESPN does **not** gate, filter, or validate VLM detections.
 | ESPN coverage gaps — tackles/headers/clearances not in ESPN, stored as `isMatched=false` with VLM description | By design |
 | `hasMinute` is minute-within-half (0–45+), not absolute match minute — cross-half SPARQL queries must add `HALFTIME_SEC / 60` when `hasPeriod = 2` | Known limitation |
 | `evaluate.py` still uses 2-minute match tolerance despite timestamp accuracy improving to ±4s — may inflate precision | In plan |
-| No commentator module yet | In plan |
-| Ontology redesign for prediction use case | User researching |
+| No commentator module yet | Fixed (commentator.py + downstream scripts now use new T-Box property names) |
+| Ontology redesign for prediction use case | In progress (clean T-Box at `ekg_tbox.ttl`, applied to 15 downstream files) |
 
 ---
 
@@ -122,6 +124,9 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 023 | Mandatory ESPN Shot confirmation — Shot rejected unless ESPN has Shot/Goal within ±1.5 min |
 | 024 | Shot threshold 0.65 → 0.80; dedup window 30s → 60s; Shot→Goal guard in `main.py` (Goal within 10s of Shot = double-detection) |
 | 025 | Checkpoint registry (`data/kg_output/processed_matches.json`) — KG grows match-by-match; already-processed matches skipped on re-run; missing TTL triggers full reprocess with warning |
+| 026 | T-Box rewrite — `ekg_tbox.ttl` with 106 clean classes; `kg_builder.py` asserts single leaf class per instance; foreign-vocab (foaf, schema, prov) types dropped |
+| 027 | `hasPeriod` (Match→Period) split from `hasPeriodNumber` (Event→int); `hasJersey` → `hasJerseyNumber` |
+| 028 | 15 downstream files renamed: `IS_PERFORMED_BY` → `isPerformedBy` etc. (see commit for full list) |
 
 ---
 
@@ -145,6 +150,7 @@ python main.py --espn-every 3     # ESPN tick every 3 clips
 | `data/<match>/224p.mp4` | Low resolution (used in --test mode) |
 | `data/<match>/Labels-ball.json` | Ball tracking ground truth (frame-level annotations) |
 | `data/blackburn_forest_2019-10-01.csv` | ESPN fallback CSV for test match |
+| `ekg_tbox.ttl` | T-Box schema (loaded by `ekg_schema.py` at startup) |
 | `data/ekg.ttl` | RDF/OWL knowledge graph (Turtle format) |
 | `data/kg_output/nodes.csv` | KG nodes: players, teams, events, matches |
 | `data/kg_output/edges.csv` | KG edges: PERFORMED, PLAYS_FOR, PRECEDED_BY, etc. |

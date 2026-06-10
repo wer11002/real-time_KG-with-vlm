@@ -51,6 +51,7 @@ HOW TO RUN
     python check_KG_for_pee_dodo.py
 """
 
+import sys
 from collections import defaultdict
 from pathlib    import Path
 
@@ -66,7 +67,10 @@ from rdflib import Graph
 # by SPARQL strings being submitted without their PREFIX declarations,
 # so this script makes the prefixes impossible to forget.
 
-TTL_PATH = Path("data/kg_output/ekg.ttl")
+# Use an absolute path anchored on this file. Relative paths through
+# rdflib's URI handling drop the last component of os.getcwd().
+BASE_DIR = Path(__file__).resolve().parent
+TTL_PATH = BASE_DIR / "data" / "kg_output" / "ekg.ttl"
 
 PREFIXES = """
 PREFIX ekg:  <http://soccerekg.org/ontology#>
@@ -76,6 +80,10 @@ PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 """
 
 print(f"Loading {TTL_PATH} ...")
+if not TTL_PATH.exists():
+    print(f"\nERROR: KG file not found: {TTL_PATH}")
+    print("Build it first with:  python main.py --match \"Blackburn\"\n")
+    sys.exit(1)
 g = Graph()
 g.parse(str(TTL_PATH), format="turtle")
 print(f"Loaded {len(g):,} triples from {TTL_PATH}\n")

@@ -1,6 +1,10 @@
 """
 kg_builder.py — Soccer EKG builder (RDF/OWL + TKG)
 ─────────────────────────────────────────────────────
+Writes a clean A-Box aligned to ekg_tbox.ttl.
+
+Every event / player / team / match instance gets exactly ONE rdf:type
+(its leaf class). No foreign-vocab (prov / schema / foaf) multi-typing.
 
 Two entry points:
 
@@ -10,16 +14,6 @@ Two entry points:
 2. REAL-TIME MODE (for the pipeline)
        from kg_builder import ingest_matched_event
        ingest_matched_event(matched_event, match_name, match_date, ekg, last_event)
-
-Changes from previous version:
-  - PLAYS_FOR uses standard RDF reification (rdf:Statement + rdf:subject /
-    rdf:predicate / rdf:object) instead of custom ekg:subject / ekg:object
-  - hasJersey split: hasJerseyNumber on Player, detectedJersey on Event (VLM)
-  - hasTimeMin removed (redundant — hasTime string is the canonical value)
-  - isMatched still written as a provenance annotation but not in the T-Box
-  - Event nodes get a specific OWL subclass (GoalEvent, ShotEvent, …)
-  - get_or_create_match uses regex for robust date extraction and adds
-    hasHomeTeam / hasAwayTeam on the Match node
 """
 
 import csv
@@ -36,7 +30,6 @@ from rdflib import Literal, RDF, RDFS, XSD
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# Use resolve() so the path is absolute even when __file__ is relative
 _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
@@ -48,25 +41,7 @@ if not _SCHEMA_FILE.exists():
         f"Fix: git checkout HEAD -- src/4_kg_builder/ekg_schema.py"
     )
 
-from ekg_schema import EKG_Graph, EKG, INST, EVENT_TYPE_CLASS, FOAF, SKOS, EVENT, WGS84, GEO
-
-
-PITCH_ZONE_COORDS = {
-    "penalty_area"   : (95.0, 34.0),
-    "six_yard_box"   : (103.0, 34.0),
-    "edge_of_box"    : (88.0, 34.0),
-    "box"            : (95.0, 34.0),
-    "left_wing"      : (75.0, 5.0),
-    "right_wing"     : (75.0, 63.0),
-    "left_flank"     : (70.0, 8.0),
-    "right_flank"    : (70.0, 60.0),
-    "centre_circle"  : (52.5, 34.0),
-    "midfield"       : (52.5, 34.0),
-    "own_half"       : (26.0, 34.0),
-    "defensive_half" : (26.0, 34.0),
-    "corner"         : (105.0, 5.0),
-    "centre"         : (52.5, 34.0),
-}
+from ekg_schema import EKG_Graph, EKG, INST, ACTION_TO_CLASS
 
 
 # ── Paths ──────────────────────────────────────────────────────────────────
@@ -82,14 +57,12 @@ DEFAULT_MATCH_DATE = "2019-10-01"
 
 
 def _append_stream(event_data: dict):
-    """Append one event JSON line to the live visualization stream."""
     STREAM_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(STREAM_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(event_data, default=str) + "\n")
 
 
 def clear_stream():
-    """Truncate the event stream. Call at the start of each pipeline run."""
     STREAM_PATH.parent.mkdir(parents=True, exist_ok=True)
     STREAM_PATH.write_text("")
 
@@ -118,13 +91,11 @@ def extract_assist(full_text: str) -> Optional[str]:
 
 
 def _extract_date(match_name: str) -> str:
-    """Extract YYYY-MM-DD from a match name robustly using regex."""
     m = re.search(r"\d{4}-\d{2}-\d{2}", match_name)
     return m.group(0) if m else match_name.split(" - ")[0].strip()
 
 
 def _extract_teams(match_name: str) -> Tuple[Optional[str], Optional[str]]:
-    """Extract (home_team, away_team) from 'DATE - Home - Away' format."""
     parts = match_name.split(" - ", 2)
     if len(parts) == 3:
         return parts[1].strip(), parts[2].strip()
@@ -132,44 +103,37 @@ def _extract_teams(match_name: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# A-BOX INSTANCE CREATORS
+# A-BOX INSTANCE CREATORS — each writes ONLY ekg:* leaf classes
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_or_create_match(match_name: str, ekg: EKG_Graph) -> Tuple[str, str]:
     """
-    Create a Match instance if not already present.
-    Returns (match_id, match_date).
-    Adds hasHomeTeam / hasAwayTeam when team names are parseable.
+    Match instance, single-typed as ekg:LeagueMatch.
+    Adds ekg:hasHomeTeam / ekg:hasAwayTeam when team names are parseable.
     """
-    mid = normalize_id(match_name)
+    mid  = normalize_id(match_name)
     date = _extract_date(match_name)
 
     if mid in ekg._seen_matches:
         return mid, date
 
     match_uri = ekg.match_uri(mid)
-    ekg.g.add((match_uri, RDF.type,    EKG.Match))
+    ekg.g.add((match_uri, RDF.type,    EKG.LeagueMatch))
     ekg.g.add((match_uri, RDFS.label,  Literal(match_name)))
     ekg.g.add((match_uri, EKG.hasDate, Literal(date)))
-    venue_id  = get_or_create_venue("Ewood Park", 53.7286, -2.4895, ekg)
-    venue_uri = INST[f"venue_{venue_id}"]
-    ekg.g.add((match_uri, EVENT.place, venue_uri))
 
     home, away = _extract_teams(match_name)
     if home:
-        home_id  = normalize_id(home)
-        home_uri = ekg.team_uri(home_id)
-        ekg.g.add((match_uri, EKG.hasHomeTeam, home_uri))
+        ekg.g.add((match_uri, EKG.hasHomeTeam, ekg.team_uri(normalize_id(home))))
     if away:
-        away_id  = normalize_id(away)
-        away_uri = ekg.team_uri(away_id)
-        ekg.g.add((match_uri, EKG.hasAwayTeam, away_uri))
+        ekg.g.add((match_uri, EKG.hasAwayTeam, ekg.team_uri(normalize_id(away))))
 
     ekg._seen_matches.add(mid)
     return mid, date
 
 
 def get_or_create_team(team_name: str, ekg: EKG_Graph) -> str:
+    """Team instance, single-typed as ekg:Team."""
     tid = normalize_id(team_name)
     if tid in ekg._seen_teams:
         return tid
@@ -177,25 +141,9 @@ def get_or_create_team(team_name: str, ekg: EKG_Graph) -> str:
     team_uri = ekg.team_uri(tid)
     ekg.g.add((team_uri, RDF.type,   EKG.Team))
     ekg.g.add((team_uri, RDFS.label, Literal(team_name)))
-    ekg.g.add((team_uri, FOAF.name,  Literal(team_name)))
 
     ekg._seen_teams.add(tid)
     return tid
-
-
-def get_or_create_venue(venue_name: str, lat: float, long_: float,
-                         ekg: EKG_Graph) -> str:
-    vid = normalize_id(venue_name)
-    if vid not in getattr(ekg, "_seen_venues", set()):
-        venue_uri = INST[f"venue_{vid}"]
-        ekg.g.add((venue_uri, RDF.type,       EKG.Venue))
-        ekg.g.add((venue_uri, RDFS.label,     Literal(venue_name)))
-        ekg.g.add((venue_uri, WGS84.lat,      Literal(lat,   datatype=XSD.decimal)))
-        ekg.g.add((venue_uri, WGS84["long"],  Literal(long_, datatype=XSD.decimal)))
-        if not hasattr(ekg, "_seen_venues"):
-            ekg._seen_venues = set()
-        ekg._seen_venues.add(vid)
-    return vid
 
 
 def get_or_create_player(
@@ -205,9 +153,8 @@ def get_or_create_player(
     match_date  : str = DEFAULT_MATCH_DATE,
 ) -> Tuple[str, bool]:
     """
-    Create a Player instance if not already present.
-    PLAYS_FOR uses standard RDF reification (rdf:Statement).
-    Returns (player_id, is_new).
+    Player instance, single-typed as ekg:Player.
+    playsFor is reified with rdf:Statement so validFrom can attach.
     """
     pid    = normalize_id(player_name)
     is_new = pid not in ekg._seen_players
@@ -216,15 +163,13 @@ def get_or_create_player(
         player_uri = ekg.player_uri(pid)
         ekg.g.add((player_uri, RDF.type,   EKG.Player))
         ekg.g.add((player_uri, RDFS.label, Literal(player_name)))
-        ekg.g.add((player_uri, FOAF.name,  Literal(player_name)))
 
         if team_id:
             team_uri = ekg.team_uri(team_id)
             edge_uri = ekg.plays_for_uri(pid, team_id, match_date)
-            # standard RDF reification: rdf:Statement with rdf:subject / rdf:predicate / rdf:object
             ekg.g.add((edge_uri, RDF.type,      RDF.Statement))
             ekg.g.add((edge_uri, RDF.subject,   player_uri))
-            ekg.g.add((edge_uri, RDF.predicate, EKG.PLAYS_FOR))
+            ekg.g.add((edge_uri, RDF.predicate, EKG.playsFor))
             ekg.g.add((edge_uri, RDF.object,    team_uri))
             ekg.g.add((edge_uri, EKG.validFrom, Literal(match_date, datatype=XSD.date)))
 
@@ -236,22 +181,13 @@ def get_or_create_player(
 def add_participates_in(player_id: str, match_id: str, ekg: EKG_Graph):
     player_uri = ekg.player_uri(player_id)
     match_uri  = ekg.match_uri(match_id)
-    if (player_uri, EKG.PARTICIPATED_IN, match_uri) not in ekg.g:
-        ekg.g.add((player_uri, EKG.PARTICIPATED_IN, match_uri))
+    if (player_uri, EKG.participatedIn, match_uri) not in ekg.g:
+        ekg.g.add((player_uri, EKG.participatedIn, match_uri))
 
 
-def prepopulate_roster(
-    roster_lookup,
-    match_name  : str,
-    match_date  : str,
-    ekg         : EKG_Graph,
-) -> int:
-    """
-    Add ALL players from the roster to the KG at startup.
-    Creates Player nodes + TKG PLAYS_FOR edges before any clips run.
-
-    Returns total players added.
-    """
+def prepopulate_roster(roster_lookup, match_name: str,
+                       match_date: str, ekg: EKG_Graph) -> int:
+    """Pre-populate all Player + Team nodes from a roster."""
     match_id, _ = get_or_create_match(match_name, ekg)
     total = 0
 
@@ -268,19 +204,17 @@ def prepopulate_roster(
                 player_uri = ekg.player_uri(pid)
                 ekg.g.add((player_uri, RDF.type,            EKG.Player))
                 ekg.g.add((player_uri, RDFS.label,          Literal(player_name)))
-                ekg.g.add((player_uri, FOAF.name,           Literal(player_name)))
-                # hasJerseyNumber — permanent squad number on the Player node
                 ekg.g.add((player_uri, EKG.hasJerseyNumber, Literal(str(jersey))))
 
-                # PLAYS_FOR: standard RDF reification
                 team_uri = ekg.team_uri(team_id)
                 edge_uri = ekg.plays_for_uri(pid, team_id, match_date)
                 ekg.g.add((edge_uri, RDF.type,      RDF.Statement))
                 ekg.g.add((edge_uri, RDF.subject,   player_uri))
-                ekg.g.add((edge_uri, RDF.predicate, EKG.PLAYS_FOR))
+                ekg.g.add((edge_uri, RDF.predicate, EKG.playsFor))
                 ekg.g.add((edge_uri, RDF.object,    team_uri))
                 ekg.g.add((edge_uri, EKG.validFrom, Literal(match_date, datatype=XSD.date)))
-                ekg.g.add((team_uri, FOAF.member,   player_uri))
+                # team→player back-link via the new T-Box's ekg:hasPlayer
+                ekg.g.add((team_uri, EKG.hasPlayer, player_uri))
 
                 ekg._seen_players.add(pid)
                 total += 1
@@ -292,7 +226,7 @@ def prepopulate_roster(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CORE: CREATE ONE EVENT NODE
+# CORE: CREATE ONE EVENT NODE — single leaf rdf:type, new property names
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _create_event_node(
@@ -320,42 +254,36 @@ def _create_event_node(
     ball_visible : Optional[bool] = None,
 ) -> Tuple[str, list]:
     """
-    Create one Event node + wire standard edges.
-    - Uses specific OWL subclass (GoalEvent, ShotEvent, …) for rdf:type.
-    - detectedJersey carries VLM-detected jersey number (separate from hasJerseyNumber on Player).
-    - isMatched written as provenance annotation (not a T-Box property).
-    Returns (event_id, edge_description_list).
+    Create one Event node with EXACTLY ONE rdf:type (the leaf class from
+    ACTION_TO_CLASS, e.g. ekg:Shot). The T-Box's subClassOf chain handles
+    parent classes via reasoning — kg_builder never asserts them.
     """
     ekg._event_count += 1
     event_id  = f"{ekg._event_count:04d}"
     event_uri = ekg.event_uri(event_id, match_id)
 
-    # specific OWL class — enables reasoning over event subtypes
-    specific_class = EVENT_TYPE_CLASS.get(event_type)
-    if specific_class:
-        ekg.g.add((event_uri, RDF.type, specific_class))
-    # always also assert the mid-level class so existing queries on
-    # ekg:ActionEvent / ekg:CardEvent continue to work without OWL reasoning
-    mid_class = EKG.CardEvent if event_type in ("YellowCard", "RedCard") else EKG.ActionEvent
-    ekg.g.add((event_uri, RDF.type, mid_class))
+    # Exactly one rdf:type, the leaf class.
+    leaf_class = ACTION_TO_CLASS.get(event_type, EKG.Event)
+    ekg.g.add((event_uri, RDF.type, leaf_class))
 
+    # Data properties carrying VLM / ESPN info.
     ekg.g.add((event_uri, EKG.hasEventType, Literal(event_type)))
     ekg.g.add((event_uri, EKG.hasTime,      Literal(time_raw)))
     ekg.g.add((event_uri, EKG.isMatched,    Literal(matched, datatype=XSD.boolean)))
 
-    # hasMinute (decimal) + hasPeriod (integer) — derived from gametime string
-    # "1st 09:34" → period=1, minute=9.567   "2nd 07:30" → period=2, minute=7.5
-    # NOTE: hasMinute is minute-within-half, not absolute match minute.
-    #       For cross-half queries add (halftime_sec/60) when hasPeriod=2.
+    # hasMinute (decimal within half) + hasPeriodNumber (1 / 2).
+    # The new T-Box reserves ekg:hasPeriod as an ObjectProperty
+    # (Match → Period); the integer half number is stored as
+    # ekg:hasPeriodNumber on the event.
     try:
         half, t  = time_raw.strip().split(" ", 1)
         mm, ss   = t.strip().split(":")
         period   = 1 if half == "1st" else 2
         minute   = int(mm) + int(ss) / 60.0
-        ekg.g.add((event_uri, EKG.hasMinute, Literal(round(minute, 3), datatype=XSD.decimal)))
-        ekg.g.add((event_uri, EKG.hasPeriod, Literal(period,           datatype=XSD.integer)))
+        ekg.g.add((event_uri, EKG.hasMinute,       Literal(round(minute, 3), datatype=XSD.decimal)))
+        ekg.g.add((event_uri, EKG.hasPeriodNumber, Literal(period,           datatype=XSD.integer)))
     except Exception:
-        print(f"  [kg] WARNING: cannot parse hasMinute/hasPeriod from '{time_raw}'")
+        print(f"  [kg] WARNING: cannot parse hasMinute/hasPeriodNumber from '{time_raw}'")
 
     if full_text:
         ekg.g.add((event_uri, EKG.hasFullText,    Literal(full_text)))
@@ -364,8 +292,7 @@ def _create_event_node(
     if description:
         ekg.g.add((event_uri, EKG.hasDescription, Literal(description)))
     if jersey:
-        # VLM-detected jersey on the event — distinct from hasJerseyNumber on Player
-        ekg.g.add((event_uri, EKG.detectedJersey,   Literal(str(jersey))))
+        ekg.g.add((event_uri, EKG.detectedJersey, Literal(str(jersey))))
     if team_color:
         ekg.g.add((event_uri, EKG.hasDetectedColor,       Literal(str(team_color))))
     if shorts_color:
@@ -375,16 +302,7 @@ def _create_event_node(
     if kit_pattern:
         ekg.g.add((event_uri, EKG.hasKitPattern,  Literal(str(kit_pattern))))
     if pitch_zone:
-        zone_str = str(pitch_zone).lower().strip()
-        ekg.g.add((event_uri, EKG.hasPitchZone, Literal(zone_str)))
-        coords = PITCH_ZONE_COORDS.get(zone_str)
-        if coords:
-            geom_uri = INST[f"geom_{event_id}"]
-            ekg.g.add((event_uri, GEO.hasGeometry, geom_uri))
-            ekg.g.add((geom_uri,  RDF.type,         GEO.Point))
-            ekg.g.add((geom_uri,  GEO.asWKT,
-                Literal(f"POINT({coords[0]} {coords[1]})",
-                        datatype=GEO.wktLiteral)))
+        ekg.g.add((event_uri, EKG.hasPitchZone,   Literal(str(pitch_zone).lower().strip())))
     if body_part:
         ekg.g.add((event_uri, EKG.hasBodyPart,    Literal(str(body_part))))
     if outcome:
@@ -398,35 +316,33 @@ def _create_event_node(
 
     new_edges = []
 
-    # IN_MATCH
+    # inMatch (event → match)
     match_uri = ekg.match_uri(match_id)
-    ekg.g.add((event_uri, EKG.IN_MATCH, match_uri))
-    new_edges.append(f"event_{event_id} --[IN_MATCH]--> {match_id}")
+    ekg.g.add((event_uri, EKG.inMatch, match_uri))
+    new_edges.append(f"event_{event_id} --[inMatch]--> {match_id}")
 
-    # PRECEDED_BY
+    # precededBy + inverse precedes
     if last_event is not None and match_id in last_event:
         prev_uri = ekg.event_uri(last_event[match_id])
-        ekg.g.add((event_uri, EKG.PRECEDED_BY, prev_uri))
-        # assert the inverse (PRECEDES) explicitly — rdflib doesn't infer it
-        ekg.g.add((prev_uri, EKG.PRECEDES, event_uri))
-        new_edges.append(f"event_{event_id} --[PRECEDED_BY]--> event_{last_event[match_id]}")
+        ekg.g.add((event_uri, EKG.precededBy, prev_uri))
+        ekg.g.add((prev_uri,  EKG.precedes,   event_uri))
+        new_edges.append(f"event_{event_id} --[precededBy]--> event_{last_event[match_id]}")
     if last_event is not None:
         last_event[match_id] = event_id
 
-    # INVOLVED_IN — event is subject, team is object
+    # involvedTeam (event → team)
     if team_id:
         team_uri = ekg.team_uri(team_id)
-        ekg.g.add((event_uri, EKG.INVOLVED_IN, team_uri))
-        new_edges.append(f"event_{event_id} --[INVOLVED_IN]--> {team_id}")
+        ekg.g.add((event_uri, EKG.involvedTeam, team_uri))
+        new_edges.append(f"event_{event_id} --[involvedTeam]--> {team_id}")
 
-    # PERFORMED + its inverse IS_PERFORMED_BY
+    # performed + inverse isPerformedBy
     if player_id:
         player_uri = ekg.player_uri(player_id)
-        ekg.g.add((player_uri, EKG.PERFORMED,       event_uri))
-        ekg.g.add((event_uri,  EKG.IS_PERFORMED_BY, player_uri))
-        new_edges.append(f"{player_id} --[PERFORMED]--> event_{event_id}")
+        ekg.g.add((player_uri, EKG.performed,      event_uri))
+        ekg.g.add((event_uri,  EKG.isPerformedBy, player_uri))
+        new_edges.append(f"{player_id} --[performed]--> event_{event_id}")
 
-    # Live visualization stream
     _append_stream({
         "event_id"   : event_id,
         "event_type" : event_type,
@@ -452,7 +368,6 @@ def _create_event_node(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def ingest_event(row: dict, ekg: EKG_Graph, last_event: dict) -> dict:
-    """Process one CSV row into the RDF graph."""
     match_name  = row["Match"]
     team_name   = row["Team"]   if row["Team"]   != "None" else None
     time_raw    = row["Time"]
@@ -473,7 +388,7 @@ def ingest_event(row: dict, ekg: EKG_Graph, last_event: dict) -> dict:
         player_id, is_new_player = get_or_create_player(
             player_name, team_id, ekg, match_date)
         if is_new_player and team_id:
-            new_edges.append(f"{player_name} --[PLAYS_FOR (TKG:{match_date})]--> {team_name}")
+            new_edges.append(f"{player_name} --[playsFor (TKG:{match_date})]--> {team_name}")
         add_participates_in(player_id, match_id, ekg)
 
     main_event_id, edges = _create_event_node(
@@ -491,8 +406,8 @@ def ingest_event(row: dict, ekg: EKG_Graph, last_event: dict) -> dict:
     if assist_name and assist_name != player_name:
         assist_pid, assist_new = get_or_create_player(
             assist_name, team_id, ekg, match_date)
-        ekg.g.add((ekg.event_uri(main_event_id), EKG.ASSISTED_BY, ekg.player_uri(assist_pid)))
-        new_edges.append(f"event_{main_event_id} --[ASSISTED_BY]--> {assist_name}")
+        ekg.g.add((ekg.event_uri(main_event_id), EKG.assistedBy, ekg.player_uri(assist_pid)))
+        new_edges.append(f"event_{main_event_id} --[assistedBy]--> {assist_name}")
         if assist_new:
             is_new_player = True
 
@@ -508,8 +423,8 @@ def ingest_event(row: dict, ekg: EKG_Graph, last_event: dict) -> dict:
             last_event = last_event,
         )
         new_edges.extend(card_edges)
-        ekg.g.add((ekg.event_uri(main_event_id), EKG.TRIGGERED, ekg.event_uri(card_event_id)))
-        new_edges.append(f"event_{main_event_id} --[TRIGGERED]--> event_{card_event_id} ({card_type})")
+        ekg.g.add((ekg.event_uri(main_event_id), EKG.triggered, ekg.event_uri(card_event_id)))
+        new_edges.append(f"event_{main_event_id} --[triggered]--> event_{card_event_id} ({card_type})")
 
     return {
         "time": time_raw, "player": player_name,
@@ -543,10 +458,6 @@ def ingest_matched_event(
     team_side    : Optional[str] = None,
     ball_visible : Optional[bool] = None,
 ) -> dict:
-    """
-    Ingest one MatchedEvent from align.py into the RDF graph.
-    Optionally accepts description + jersey from Qwen2-VL.
-    """
     action_type = matched.action
     time_raw    = matched.gametime or f"{matched.video_time/60:.1f}'"
     full_text   = matched.espn_text or ""
@@ -562,7 +473,7 @@ def ingest_matched_event(
         player_id, is_new_player = get_or_create_player(
             matched.player, team_id, ekg, match_date)
         if is_new_player and team_id:
-            new_edges.append(f"{matched.player} --[PLAYS_FOR (TKG:{match_date})]--> {matched.team}")
+            new_edges.append(f"{matched.player} --[playsFor (TKG:{match_date})]--> {matched.team}")
         add_participates_in(player_id, match_id, ekg)
     else:
         player_id = None
@@ -570,7 +481,7 @@ def ingest_matched_event(
 
     if team_id is None:
         print(f"  [kg] WARNING: team_id=None for {matched.action} at {matched.gametime} "
-              f"(matched.team={matched.team!r}) — INVOLVED_IN will be skipped")
+              f"(matched.team={matched.team!r}) — involvedTeam will be skipped")
 
     event_id, edges = _create_event_node(
         ekg, match_id, time_raw,
@@ -613,8 +524,8 @@ def ingest_matched_event(
             last_event = last_event,
         )
         new_edges.extend(card_edges)
-        ekg.g.add((ekg.event_uri(event_id), EKG.TRIGGERED, ekg.event_uri(card_event_id)))
-        new_edges.append(f"event_{event_id} --[TRIGGERED]--> event_{card_event_id} ({card_type})")
+        ekg.g.add((ekg.event_uri(event_id), EKG.triggered, ekg.event_uri(card_event_id)))
+        new_edges.append(f"event_{event_id} --[triggered]--> event_{card_event_id} ({card_type})")
 
     return {
         "time": time_raw,
@@ -634,7 +545,7 @@ ACTION_ICONS = {
     "Goal": "GOAL", "Shot": "shot", "Foul": "foul",
     "Corner": "corner", "Offside": "offside",
     "FreeKick": "free kick", "Substitution": "sub",
-    "YellowCard": "🟨", "RedCard": "🟥", "Penalty": "penalty",
+    "YellowCard": "YC", "RedCard": "RC", "Penalty": "penalty",
 }
 
 def print_event(res: dict, ekg: EKG_Graph):

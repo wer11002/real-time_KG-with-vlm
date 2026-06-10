@@ -13,7 +13,7 @@ Ground truth (per action type):
   Corner    → ESPN CSV          (Labels-ball.json does not annotate corners)
 
 Pipeline output:
-  Reads ekg.ttl → extracts all ActionEvents for Blackburn match
+  Reads ekg.ttl → extracts all PlayerActions for Blackburn match
   Converts hasTime string → float minutes for comparison
 
 Matching rule:
@@ -114,7 +114,7 @@ def csv_time_to_min(time_str: str) -> float:
 def load_kg_events(ttl_path: Path, match_filter: str = None) -> list:
     """
     Parse ekg.ttl line by line.
-    Extracts ActionEvent blocks with action, time, matched, jersey, match.
+    Extracts PlayerAction blocks with action, time, matched, jersey, match.
     """
     events  = []
     current = {}
@@ -122,7 +122,7 @@ def load_kg_events(ttl_path: Path, match_filter: str = None) -> list:
     def flush(c):
         if c.get("is_event") and c.get("action") and c.get("time_str"):
             events.append(dict(c))
-        # pending but never confirmed = not an ActionEvent block, discard silently
+        # pending but never confirmed = not an PlayerAction block, discard silently
 
     with open(ttl_path, encoding="utf-8") as f:
         for line in f:
@@ -141,8 +141,8 @@ def load_kg_events(ttl_path: Path, match_filter: str = None) -> list:
                 current = {}
                 continue
 
-            # confirm it is an ActionEvent once we see the type in the block
-            if current.get("is_pending") and "ekg:ActionEvent" in stripped:
+            # confirm it is an PlayerAction once we see the type in the block
+            if current.get("is_pending") and "ekg:PlayerAction" in stripped:
                 current["is_event"] = True
                 continue
 
@@ -163,12 +163,12 @@ def load_kg_events(ttl_path: Path, match_filter: str = None) -> list:
             elif "ekg:isMatched" in stripped:
                 current["matched"] = "true" in stripped.lower()
 
-            elif "ekg:hasJersey" in stripped:
+            elif "ekg:hasJerseyNumber" in stripped:
                 m = re.search(r'"([^"]+)"', stripped)
                 if m:
                     current["jersey"] = m.group(1)
 
-            elif "ekg:IN_MATCH" in stripped:
+            elif "ekg:inMatch" in stripped:
                 m = re.search(r"data:(\S+?)[\s;.]", stripped)
                 if m:
                     current["match"] = m.group(1)

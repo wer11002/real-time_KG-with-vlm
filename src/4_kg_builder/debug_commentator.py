@@ -97,13 +97,13 @@ def main(args):
     if args.ttl and Path(args.ttl).exists():
         abox_g = Graph()
         abox_g.parse(args.ttl, format="turtle")
-        n_events      = len(list(abox_g.subjects(RDF.type, EKG.ActionEvent)))
+        n_events      = len(list(abox_g.subjects(RDF.type, EKG.PlayerAction)))
         serial_issues = serialization_debug(abox_g)
 
         # ── 5. Sample commentary ───────────────────────────────────────────
         if not args.no_llm and n_events > 0:
             from commentator import generate_commentary, commentary_factual_check
-            events = list(abox_g.subjects(RDF.type, EKG.ActionEvent))[:args.sample]
+            events = list(abox_g.subjects(RDF.type, EKG.PlayerAction))[:args.sample]
             print(f"\n── Sample commentary ({len(events)} events) ──")
             for ev in events:
                 ctx  = event_to_context(ev, abox_g)
@@ -135,7 +135,7 @@ def main(args):
     print(f"    Critical OOPS!  : {scores['critical_pitfalls']}")
     print(f"  Commentary score  : {scores['commentary_score']}/10")
     print(f"    Thin events     : {scores['thin_events_pct']}%")
-    print(f"      (events with no player / no text / no PRECEDED_BY)")
+    print(f"      (events with no player / no text / no precededBy)")
     print(f"{'─'*60}")
     print(f"  Bottleneck: structural={scores['structural_score']} "
           f"commentary={scores['commentary_score']}")
@@ -144,7 +144,7 @@ def main(args):
     elif scores['commentary_score'] < scores['structural_score']:
         print(f"  → Commentary readiness is the limiting factor.")
         print(f"    Add hasDescription / hasFullText to more events.")
-        print(f"    Ensure IS_PERFORMED_BY is asserted (not just PERFORMED).")
+        print(f"    Ensure isPerformedBy is asserted (not just performed).")
     else:
         print(f"  → T-Box structure is the limiting factor.")
         print(f"    Fix CQ coverage or reduce critical OOPS! pitfalls.")

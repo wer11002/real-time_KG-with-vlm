@@ -69,8 +69,8 @@ async def get_graph():
     EKG = Namespace("http://soccerekg.org/ontology#")
 
     EVENT_TYPES = [
-        "GoalEvent", "ShotEvent", "FoulEvent", "CornerEvent",
-        "FreeKickEvent", "SubstitutionEvent", "OffsideEvent",
+        "Goal", "Shot", "Foul", "Corner",
+        "FreeKick", "Substitution", "OffsideCalled",
     ]
 
     def local_name(uri):
@@ -100,17 +100,17 @@ async def get_graph():
             link_keys.add(key)
             links.append({"source": s["id"], "target": t["id"], "label": label})
 
-    # Team-side map: scan event hasTeamSide + INVOLVED_IN
+    # Team-side map: scan event hasTeamSide + involvedTeam
     team_side_map = {}
     for event in g.subjects(EKG.hasTeamSide, None):
         side = str(g.value(event, EKG.hasTeamSide))
-        for team in g.subjects(EKG.INVOLVED_IN, event):
+        for team in g.subjects(EKG.involvedTeam, event):
             team_side_map.setdefault(str(team), side)
 
-    # Player-side map: scan PERFORMED → event hasTeamSide
+    # Player-side map: scan performed → event hasTeamSide
     player_side_map = {}
     for player in g.subjects(RDF.type, EKG.Player):
-        for event in g.objects(player, EKG.PERFORMED):
+        for event in g.objects(player, EKG.performed):
             side_lit = g.value(event, EKG.hasTeamSide)
             if side_lit:
                 player_side_map[str(player)] = str(side_lit)
@@ -163,14 +163,14 @@ async def get_graph():
             add_node(subj, {"id": uid, "nodeType": evt_type, "label": label, "rawData": raw})
 
     # Edges
-    for s, _, o in g.triples((None, EKG.PERFORMED, None)):
-        add_link(s, o, "PERFORMED")
-    for s, _, o in g.triples((None, EKG.INVOLVED_IN, None)):
-        add_link(s, o, "INVOLVED_IN")
-    for s, _, o in g.triples((None, EKG.IN_MATCH, None)):
-        add_link(s, o, "IN_MATCH")
-    for s, _, o in g.triples((None, EKG.PRECEDED_BY, None)):
-        add_link(s, o, "PRECEDED_BY")
+    for s, _, o in g.triples((None, EKG.performed, None)):
+        add_link(s, o, "performed")
+    for s, _, o in g.triples((None, EKG.involvedTeam, None)):
+        add_link(s, o, "involvedTeam")
+    for s, _, o in g.triples((None, EKG.inMatch, None)):
+        add_link(s, o, "inMatch")
+    for s, _, o in g.triples((None, EKG.precededBy, None)):
+        add_link(s, o, "precededBy")
 
     return JSONResponse({"nodes": nodes, "links": links})
 

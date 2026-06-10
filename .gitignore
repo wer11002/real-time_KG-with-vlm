@@ -4,3 +4,5 @@ data/
 models/*.pth
 logs/
 node_modules/
+__pycache__/
+*.pyc

@@ -44,7 +44,7 @@ def find_matches(g: Graph, name_filter: str) -> list[URIRef]:
 def events_in_match(g: Graph, match_uri: URIRef) -> list[URIRef]:
     q = """
     PREFIX ekg: <http://soccerekg.org/ontology#>
-    SELECT DISTINCT ?e WHERE { ?e ekg:IN_MATCH <%s> }
+    SELECT DISTINCT ?e WHERE { ?e ekg:inMatch <%s> }
     """ % str(match_uri)
     return [URIRef(str(r.e)) for r in g.query(q)]
 

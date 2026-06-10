@@ -64,11 +64,11 @@ CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?p WHERE {
-                ekg:IS_PERFORMED_BY a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:IS_PERFORMED_BY AS ?p)
+                ekg:isPerformedBy a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:isPerformedBy AS ?p)
             }
         """,
-        "note"  : "Requires IS_PERFORMED_BY object property",
+        "note"  : "Requires isPerformedBy object property",
     },
     {
         "id"    : "CQ03",
@@ -76,11 +76,11 @@ CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?p WHERE {
-                ekg:INVOLVED_IN a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:INVOLVED_IN AS ?p)
+                ekg:involvedTeam a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:involvedTeam AS ?p)
             }
         """,
-        "note"  : "Requires INVOLVED_IN (Team → Event)",
+        "note"  : "Requires involvedTeam (Team → Event)",
     },
     {
         "id"    : "CQ04",
@@ -102,11 +102,11 @@ CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?p WHERE {
-                ekg:PRECEDED_BY a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:PRECEDED_BY AS ?p)
+                ekg:precededBy a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:precededBy AS ?p)
             }
         """,
-        "note"  : "Requires PRECEDED_BY (Event → Event)",
+        "note"  : "Requires precededBy (Event → Event)",
     },
     {
         "id"    : "CQ06",
@@ -114,11 +114,11 @@ CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?p WHERE {
-                ekg:ASSISTED_BY a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:ASSISTED_BY AS ?p)
+                ekg:assistedBy a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:assistedBy AS ?p)
             }
         """,
-        "note"  : "Requires ASSISTED_BY (Event → Player)",
+        "note"  : "Requires assistedBy (Event → Player)",
     },
     {
         "id"    : "CQ07",
@@ -139,11 +139,11 @@ CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?p WHERE {
-                ekg:TRIGGERED a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:TRIGGERED AS ?p)
+                ekg:triggered a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:triggered AS ?p)
             }
         """,
-        "note"  : "Requires TRIGGERED (ActionEvent → CardEvent)",
+        "note"  : "Requires triggered (PlayerAction → Card)",
     },
     {
         "id"    : "CQ09",
@@ -151,13 +151,13 @@ CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?prec ?type WHERE {
-                ekg:PRECEDED_BY a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                ekg:precededBy a <http://www.w3.org/2002/07/owl#ObjectProperty> .
                 ekg:hasEventType a <http://www.w3.org/2002/07/owl#DatatypeProperty> .
-                BIND(ekg:PRECEDED_BY AS ?prec)
+                BIND(ekg:precededBy AS ?prec)
                 BIND(ekg:hasEventType AS ?type)
             }
         """,
-        "note"  : "Requires PRECEDED_BY chain + hasEventType string label",
+        "note"  : "Requires precededBy chain + hasEventType string label",
     },
     {
         "id"    : "CQ10",
@@ -167,11 +167,11 @@ CQS = [
             PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
             SELECT ?prop WHERE {
                 ?prop a <http://www.w3.org/2002/07/owl#DatatypeProperty> .
-                ?prop <http://www.w3.org/2000/01/rdf-schema#label> "hasPeriod" .
+                ?prop <http://www.w3.org/2000/01/rdf-schema#label> "hasPeriodNumber" .
                 ?prop <http://www.w3.org/2000/01/rdf-schema#range> xsd:integer .
             }
         """,
-        "note"  : "Requires hasPeriod (xsd:integer) for first/second half filter",
+        "note"  : "Requires hasPeriodNumber (xsd:integer) for first/second half filter",
     },
     {
         "id"    : "CQ11",
@@ -185,7 +185,7 @@ CQS = [
                 ?prop <http://www.w3.org/2000/01/rdf-schema#range> xsd:date .
             }
         """,
-        "note"  : "Requires validFrom (xsd:date) on PLAYS_FOR TKG edge",
+        "note"  : "Requires validFrom (xsd:date) on playsFor TKG edge",
     },
     {
         "id"    : "CQ12",
@@ -193,13 +193,13 @@ CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?prec ?type WHERE {
-                ekg:PRECEDED_BY a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                ekg:ShotEvent   a <http://www.w3.org/2002/07/owl#Class> .
-                BIND(ekg:PRECEDED_BY AS ?prec)
-                BIND(ekg:ShotEvent   AS ?type)
+                ekg:precededBy a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                ekg:Shot   a <http://www.w3.org/2002/07/owl#Class> .
+                BIND(ekg:precededBy AS ?prec)
+                BIND(ekg:Shot   AS ?type)
             }
         """,
-        "note"  : "Requires PRECEDED_BY + ShotEvent OWL class",
+        "note"  : "Requires precededBy + Shot OWL class",
     },
     {
         "id"    : "CQ13",

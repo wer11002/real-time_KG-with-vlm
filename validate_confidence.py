@@ -49,7 +49,7 @@ CSV_ACTIONS = {"Foul"}
 
 def parse_ttl(ttl_path: Path) -> list[dict]:
     """
-    Parse ekg.ttl line-by-line. Extract one dict per ActionEvent block.
+    Parse ekg.ttl line-by-line. Extract one dict per PlayerAction block.
     Handles multi-type declarations (new TTL format).
     """
     events  = []
@@ -75,8 +75,8 @@ def parse_ttl(ttl_path: Path) -> list[dict]:
                 current = {}
                 continue
 
-            # promote pending → confirmed ActionEvent
-            if current.get("is_pending") and "ekg:ActionEvent" in stripped:
+            # promote pending → confirmed PlayerAction
+            if current.get("is_pending") and "ekg:PlayerAction" in stripped:
                 current["is_event"] = True
                 continue
 
@@ -131,7 +131,7 @@ def parse_ttl(ttl_path: Path) -> list[dict]:
                 if v:
                     current["foul_type"] = v
 
-            elif "ekg:IN_MATCH" in stripped:
+            elif "ekg:inMatch" in stripped:
                 m = re.search(r"data:(\S+?)[\s;.]", stripped)
                 if m:
                     current["match"] = m.group(1)

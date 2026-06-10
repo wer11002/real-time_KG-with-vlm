@@ -91,7 +91,7 @@ def ancestors(g, cls: URIRef) -> list[URIRef]:
             break
         cur = parents[0]
         chain.append(cur)
-    return chain          # nearest first → [ActionEvent, Event, ...]
+    return chain          # nearest first → [PlayerAction, Event, ...]
 
 
 def descendants(g, cls: URIRef, depth=0) -> list[tuple[URIRef, int]]:
@@ -135,8 +135,8 @@ def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 600) ->
     Layout:
       Row 0 — Match / Team / Player / Venue / League
       Row 1 — Event (base class)
-      Row 2 — ActionEvent (left)  CardEvent (right)
-      Row 3 — ActionEvent subtypes (2 rows)  +  YellowCard / RedCard
+      Row 2 — PlayerAction (left)  Card (right)
+      Row 3 — PlayerAction subtypes (2 rows)  +  YellowCard / RedCard
     Solid gray  = subClassOf (parent → child)
     Dashed blue = key object properties
     """
@@ -154,11 +154,11 @@ def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 600) ->
 
     GX, GY = 130, 108   # grid unit x, y
 
-    # ── ActionEvent anchor and children layout ────────────────────────────────
-    AC = -2 * GX          # ActionEvent center x
-    CC =  5 * GX          # CardEvent  center x
+    # ── PlayerAction anchor and children layout ────────────────────────────────
+    AC = -2 * GX          # PlayerAction center x
+    CC =  5 * GX          # Card  center x
 
-    # ActionEvent has 9 children — split into two rows of 5 and 4
+    # PlayerAction has 9 children — split into two rows of 5 and 4
     # Row 1: 5 children centered at AC
     R1 = [AC + (i - 2) * GX for i in range(5)]   # offsets -2,-1,0,1,2 from AC
     # Row 2: 4 children centered at AC
@@ -174,22 +174,22 @@ def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 600) ->
         # Row 1 — base event class
         "Event":             (  0,      GY),
         # Row 2 — mid-level event classes
-        "ActionEvent":       (AC,    2 * GY),
-        "CardEvent":         (CC,    2 * GY),
-        # Row 3a — first 5 ActionEvent children
-        "GoalEvent":         (R1[0], 3 * GY),
-        "ShotEvent":         (R1[1], 3 * GY),
-        "FoulEvent":         (R1[2], 3 * GY),
-        "CornerEvent":       (R1[3], 3 * GY),
-        "OffsideEvent":      (R1[4], 3 * GY),
-        # Row 3b — next 4 ActionEvent children (offset row)
-        "FreeKickEvent":     (R2[0], 4 * GY),
-        "SubstitutionEvent": (R2[1], 4 * GY),
+        "PlayerAction":       (AC,    2 * GY),
+        "Card":         (CC,    2 * GY),
+        # Row 3a — first 5 PlayerAction children
+        "Goal":         (R1[0], 3 * GY),
+        "Shot":         (R1[1], 3 * GY),
+        "Foul":         (R1[2], 3 * GY),
+        "Corner":       (R1[3], 3 * GY),
+        "OffsideCalled":      (R1[4], 3 * GY),
+        # Row 3b — next 4 PlayerAction children (offset row)
+        "FreeKick":     (R2[0], 4 * GY),
+        "Substitution": (R2[1], 4 * GY),
         "PenaltyEvent":      (R2[2], 4 * GY),
         "PassEvent":         (R2[3], 4 * GY),
-        # Row 3a — CardEvent children (same row as first action subtypes)
-        "YellowCardEvent":   (CC - GX,  3 * GY),
-        "RedCardEvent":      (CC + GX,  3 * GY),
+        # Row 3a — Card children (same row as first action subtypes)
+        "YellowCard":   (CC - GX,  3 * GY),
+        "RedCard":      (CC + GX,  3 * GY),
     }
 
     # ── color scheme ──────────────────────────────────────────────────────────
@@ -198,10 +198,10 @@ def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 600) ->
         "Team":            ("#E74C3C", "#b03a2e", "#ffffff"),
         "Player":          ("#2ECC71", "#1a8a4a", "#ffffff"),
         "Event":           ("#8E44AD", "#6c3483", "#ffffff"),
-        "ActionEvent":     ("#F0A500", "#c47d00", "#ffffff"),
-        "CardEvent":       ("#E67E22", "#ca6f1e", "#ffffff"),
-        "YellowCardEvent": ("#F9E400", "#c0a000", "#333333"),
-        "RedCardEvent":    ("#C0392B", "#922b21", "#ffffff"),
+        "PlayerAction":     ("#F0A500", "#c47d00", "#ffffff"),
+        "Card":       ("#E67E22", "#ca6f1e", "#ffffff"),
+        "YellowCard": ("#F9E400", "#c0a000", "#333333"),
+        "RedCard":    ("#C0392B", "#922b21", "#ffffff"),
     }
     DEFAULT_C   = ("#FDE8C8", "#E8A020", "#333333")
     HIGHLIGHT_C = ("#FF6B35", "#cc4400", "#ffffff")
@@ -257,12 +257,12 @@ def build_tbox_flow_graph(g, highlight_cls: URIRef = None, height: int = 600) ->
     PROP_COLORS = {
         "hasHomeTeam":     "#4A90D9",
         "hasAwayTeam":     "#4A90D9",
-        "PLAYS_FOR":       "#2ECC71",
-        "PERFORMED":       "#E74C3C",
-        "IS_PERFORMED_BY": "#E74C3C",
-        "INVOLVED_IN":     "#E74C3C",
-        "IN_MATCH":        "#9B59B6",
-        "TRIGGERED":       "#E67E22",
+        "playsFor":       "#2ECC71",
+        "performed":       "#E74C3C",
+        "isPerformedBy": "#E74C3C",
+        "involvedTeam":     "#E74C3C",
+        "inMatch":        "#9B59B6",
+        "triggered":       "#E67E22",
     }
     for ptype, prop in all_properties(g):
         if ptype != "object":
@@ -534,16 +534,16 @@ NODE_COLORS = {
     "Match"              : "#4A90D9",   # blue
     "Team"               : "#E74C3C",   # red
     "Player"             : "#2ECC71",   # green
-    "GoalEvent"          : "#F1C40F",   # gold
-    "ShotEvent"          : "#F39C12",   # orange
-    "FoulEvent"          : "#E67E22",   # dark orange
-    "CornerEvent"        : "#D4AC0D",   # olive
-    "FreeKickEvent"      : "#CA6F1E",   # brown-orange
-    "SubstitutionEvent"  : "#8E44AD",   # purple
-    "OffsideEvent"       : "#1ABC9C",   # teal
-    "YellowCardEvent"    : "#F9E400",   # yellow
-    "RedCardEvent"       : "#C0392B",   # dark red
-    "ActionEvent"        : "#F0A500",   # amber (fallback)
+    "Goal"          : "#F1C40F",   # gold
+    "Shot"          : "#F39C12",   # orange
+    "Foul"          : "#E67E22",   # dark orange
+    "Corner"        : "#D4AC0D",   # olive
+    "FreeKick"      : "#CA6F1E",   # brown-orange
+    "Substitution"  : "#8E44AD",   # purple
+    "OffsideCalled"       : "#1ABC9C",   # teal
+    "YellowCard"    : "#F9E400",   # yellow
+    "RedCard"       : "#C0392B",   # dark red
+    "PlayerAction"        : "#F0A500",   # amber (fallback)
     "default"            : "#BDC3C7",   # grey
 }
 
@@ -577,20 +577,20 @@ CLASS_LEVELS = {
     "Team"              : 1,
     "Player"            : 2,
     "Person"            : 2,
-    "ActionEvent"       : 3,
+    "PlayerAction"       : 3,
     "Event"             : 3,
-    "GoalEvent"         : 4,
-    "ShotEvent"         : 4,
-    "FoulEvent"         : 4,
-    "CornerEvent"       : 4,
-    "FreeKickEvent"     : 4,
-    "SubstitutionEvent" : 4,
-    "OffsideEvent"      : 4,
+    "Goal"         : 4,
+    "Shot"         : 4,
+    "Foul"         : 4,
+    "Corner"       : 4,
+    "FreeKick"     : 4,
+    "Substitution" : 4,
+    "OffsideCalled"      : 4,
     "PassEvent"         : 4,
     "PenaltyEvent"      : 4,
-    "CardEvent"         : 5,
-    "YellowCardEvent"   : 6,
-    "RedCardEvent"      : 6,
+    "Card"         : 5,
+    "YellowCard"   : 6,
+    "RedCard"      : 6,
 }
 
 
@@ -674,10 +674,10 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
         SCHEMA_DRAW_PROPS = {
             "hasHomeTeam": "#FF8C00",
             "hasAwayTeam": "#FF8C00",
-            "PLAYS_FOR"  : "#8E44AD",
+            "playsFor"  : "#8E44AD",
             "member"     : "#8E44AD",
-            "PERFORMED"  : "#2ECC71",
-            "TRIGGERED"  : "#F39C12",
+            "performed"  : "#2ECC71",
+            "triggered"  : "#F39C12",
         }
         for ptype, prop in all_properties(g):
             if ptype != "object":
@@ -691,7 +691,7 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
                 for r in rngs:
                     if not isinstance(d, URIRef) or not isinstance(r, URIRef):
                         continue
-                    is_trigger = pname == "TRIGGERED"
+                    is_trigger = pname == "triggered"
                     key = (str(d), str(r), pname)
                     if key not in added_edges:
                         added_edges.add(key)
@@ -734,12 +734,12 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
                          title=f"Player: {lbl}")
 
         # Events — up to max_nodes
-        for uri in g.subjects(RDF.type, EKG.ActionEvent):
+        for uri in g.subjects(RDF.type, EKG.PlayerAction):
             if not isinstance(uri, URIRef):
                 continue
             etype = next((short(t) for t in g.objects(uri, RDF.type)
-                          if short(t).endswith("Event") and short(t) != "ActionEvent"), "ActionEvent")
-            color = NODE_COLORS.get(etype, NODE_COLORS["ActionEvent"])
+                          if short(t).endswith("Event") and short(t) != "PlayerAction"), "PlayerAction")
+            color = NODE_COLORS.get(etype, NODE_COLORS["PlayerAction"])
             time_val = next((str(o) for o in g.objects(uri, EKG.hasTime)), "")
             add_node(uri,
                      label=f"{etype.replace('Event','')}\n{time_val}",
@@ -759,11 +759,11 @@ def build_pyvis(g, mode: str, max_nodes: int) -> str:
                 "hasHomeTeam": "#FF8C00",
                 "hasAwayTeam": "#FF8C00",
                 "member"     : "#8E44AD",
-                "PLAYS_FOR"  : "#8E44AD",
-                "PERFORMED"  : "#2ECC71",
-                "PRECEDED_BY": "#888888",
-                "TRIGGERED"  : "#F39C12",
-                "ASSISTED_BY": "#1ABC9C",
+                "playsFor"  : "#8E44AD",
+                "performed"  : "#2ECC71",
+                "precededBy": "#888888",
+                "triggered"  : "#F39C12",
+                "assistedBy": "#1ABC9C",
             }
             if prop_name not in DRAW_PROPS:
                 continue
@@ -845,8 +845,8 @@ def build_neighborhood_graph(g, center_uri: str) -> str:
     EDGE_C = {
         "hasHomeTeam": "#3A86FF",
         "hasAwayTeam": "#3A86FF",
-        "PLAYS_FOR":   "#9B59B6",
-        "PERFORMED":   "#2DC653",
+        "playsFor":   "#9B59B6",
+        "performed":   "#2DC653",
     }
 
     def glabel(u):
@@ -869,10 +869,10 @@ def build_neighborhood_graph(g, center_uri: str) -> str:
     player = URIRef(center_uri)
 
     # ── 1. find match ──────────────────────────────────────────────────────
-    match = next(g.objects(player, EKG.PARTICIPATED_IN), None)
+    match = next(g.objects(player, EKG.participatedIn), None)
     if not match:
-        for ev in g.objects(player, EKG.PERFORMED):
-            match = next(g.objects(ev, EKG.IN_MATCH), None)
+        for ev in g.objects(player, EKG.performed):
+            match = next(g.objects(ev, EKG.inMatch), None)
             if match:
                 break
 
@@ -888,12 +888,12 @@ def build_neighborhood_graph(g, center_uri: str) -> str:
             break
     if not player_team:
         for team in (home_team, away_team):
-            if team and (player, EKG.PLAYS_FOR, team) in g:
+            if team and (player, EKG.playsFor, team) in g:
                 player_team = team
                 break
 
     # ── 4. events performed (max 6, sorted by time) ────────────────────────
-    ev_raw = list(g.objects(player, EKG.PERFORMED))
+    ev_raw = list(g.objects(player, EKG.performed))
     def ev_time(e):
         t = g.value(e, EKG.hasTime)
         return str(t) if t else ""
@@ -935,7 +935,7 @@ def build_neighborhood_graph(g, center_uri: str) -> str:
     px = -280 if player_team == home_team else (280 if player_team == away_team else 0)
     node(player, glabel(player), px, 340, TYPE_BG["Player"], is_center=True)
     if player_team:
-        edge(player_team, player, "PLAYS_FOR", EDGE_C["PLAYS_FOR"])
+        edge(player_team, player, "playsFor", EDGE_C["playsFor"])
 
     # Events — spread below player
     n = len(events)
@@ -944,7 +944,7 @@ def build_neighborhood_graph(g, center_uri: str) -> str:
     for i, ev in enumerate(events):
         ex = ev_x0 + i * ev_gap
         node(ev, glabel(ev), ex, 500, TYPE_BG["Event"])
-        edge(player, ev, "PERFORMED", EDGE_C["PERFORMED"])
+        edge(player, ev, "performed", EDGE_C["performed"])
 
     # ── 6. render vis.js ───────────────────────────────────────────────────
     node_js = ",\n    ".join(

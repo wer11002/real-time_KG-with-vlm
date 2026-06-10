@@ -21,7 +21,7 @@ def event_to_context(event_uri: URIRef, g: Graph, n_preceding: int = 3) -> dict:
         "event_type" : lit(event_uri, EKG.hasEventType),
         "time"       : lit(event_uri, EKG.hasTime),
         "minute"     : lit(event_uri, EKG.hasMinute),
-        "period"     : lit(event_uri, EKG.hasPeriod),
+        "period"     : lit(event_uri, EKG.hasPeriodNumber),
         "description": lit(event_uri, EKG.hasDescription),
         "full_text"  : lit(event_uri, EKG.hasFullText),
         "jersey"     : lit(event_uri, EKG.detectedJersey),
@@ -34,11 +34,11 @@ def event_to_context(event_uri: URIRef, g: Graph, n_preceding: int = 3) -> dict:
     }
 
     # player
-    players = list(g.subjects(EKG.PERFORMED, event_uri))
+    players = list(g.subjects(EKG.performed, event_uri))
     if players:
         p_uri         = players[0]
         ctx["player"] = lit(p_uri, RDFS.label) or str(p_uri).split("#")[-1]
-        # team via PLAYS_FOR reification
+        # team via playsFor reification
         for edge in g.subjects(RDF.subject, p_uri):
             if (edge, RDF.type, RDF.Statement) in g:
                 team_uri = list(g.objects(edge, RDF.object))
@@ -46,23 +46,23 @@ def event_to_context(event_uri: URIRef, g: Graph, n_preceding: int = 3) -> dict:
                     ctx["player_team"] = lit(team_uri[0], RDFS.label)
 
     # assist
-    assists = list(g.objects(event_uri, EKG.ASSISTED_BY))
+    assists = list(g.objects(event_uri, EKG.assistedBy))
     if assists:
         ctx["assist"] = lit(assists[0], RDFS.label) or str(assists[0]).split("#")[-1]
 
     # triggered card
-    cards = list(g.objects(event_uri, EKG.TRIGGERED))
+    cards = list(g.objects(event_uri, EKG.triggered))
     if cards:
         ctx["card"] = lit(cards[0], EKG.hasEventType)
 
-    # preceding events (walk PRECEDED_BY chain)
+    # preceding events (walk precededBy chain)
     current = event_uri
     for _ in range(n_preceding):
-        prev_list = list(g.objects(current, EKG.PRECEDED_BY))
+        prev_list = list(g.objects(current, EKG.precededBy))
         if not prev_list:
             break
         prev = prev_list[0]
-        prev_players = list(g.subjects(EKG.PERFORMED, prev))
+        prev_players = list(g.subjects(EKG.performed, prev))
         prev_player  = None
         if prev_players:
             prev_player = lit(prev_players[0], RDFS.label)
@@ -115,13 +115,13 @@ def context_to_text(ctx: dict) -> str:
 
 def serialization_debug(g: Graph) -> list:
     """
-    Run serialization on all ActionEvent nodes. Flag events with thin context.
+    Run serialization on all PlayerAction nodes. Flag events with thin context.
     Returns list of (event_uri, time, issues).
     """
     issues = []
-    events = list(g.subjects(RDF.type, EKG.ActionEvent))
+    events = list(g.subjects(RDF.type, EKG.PlayerAction))
 
-    print(f"\n── Serialization debug: {len(events)} ActionEvent nodes ──")
+    print(f"\n── Serialization debug: {len(events)} PlayerAction nodes ──")
     for ev in events:
         ctx       = event_to_context(ev, g)
         ev_issues = []
@@ -133,7 +133,7 @@ def serialization_debug(g: Graph) -> list:
         if not ctx["description"] and not ctx["full_text"]:
             ev_issues.append("NO TEXT — neither hasDescription nor hasFullText")
         if not ctx["preceded_by"]:
-            ev_issues.append("NO PRECEDED_BY — no build-up narrative possible")
+            ev_issues.append("NO precededBy — no build-up narrative possible")
 
         if ev_issues:
             t = ctx.get("time", "?")

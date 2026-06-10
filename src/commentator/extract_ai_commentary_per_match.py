@@ -106,24 +106,24 @@ def load_matches(g: Graph) -> list[tuple[str, str]]:
 def load_events_for_match(g: Graph, match_uri: str) -> list[dict]:
     """
     All events in one match, ordered by (period, minute, gametime, URI).
-    Both IS_PERFORMED_BY and the inverse PERFORMED are checked so we work
+    Both isPerformedBy and the inverse performed are checked so we work
     whichever direction the schema actually stores.
     """
     q = """
     PREFIX ekg:  <http://soccerekg.org/ontology#>
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     SELECT ?e ?type ?minute ?period ?gametime ?playerLabel ?teamLabel WHERE {
-        ?e ekg:IN_MATCH      <%s> ;
+        ?e ekg:inMatch      <%s> ;
            ekg:hasEventType  ?type ;
            ekg:hasMinute     ?minute ;
-           ekg:hasPeriod     ?period ;
+           ekg:hasPeriodNumber     ?period ;
            ekg:hasTime       ?gametime .
         OPTIONAL {
-            { ?e ekg:IS_PERFORMED_BY ?p } UNION { ?p ekg:PERFORMED ?e }
+            { ?e ekg:isPerformedBy ?p } UNION { ?p ekg:performed ?e }
             ?p rdfs:label ?playerLabel .
         }
         OPTIONAL {
-            ?e ekg:INVOLVED_IN ?t .
+            ?e ekg:involvedTeam ?t .
             ?t rdfs:label      ?teamLabel .
         }
     }
@@ -156,7 +156,7 @@ def load_events_for_match(g: Graph, match_uri: str) -> list[dict]:
         })
 
     if bad_per or bad_min:
-        print(f"    [warn] {bad_per} event(s) had non-integer hasPeriod, "
+        print(f"    [warn] {bad_per} event(s) had non-integer hasPeriodNumber, "
               f"{bad_min} had unparseable minute — recovered from hasTime")
     return events
 

@@ -57,11 +57,11 @@ def get_player_history(ttl_path: str, player_uri: str) -> list[dict]:
     q = """
     PREFIX ekg:  <http://soccerekg.org/ontology#>
     SELECT ?e ?type ?hasTime ?minute ?period ?outcome ?teamSide WHERE {
-        ?player ekg:PERFORMED ?e .
+        ?player ekg:performed ?e .
         ?e      a              ?type ;
                 ekg:hasTime    ?hasTime ;
                 ekg:hasMinute  ?minute ;
-                ekg:hasPeriod  ?period .
+                ekg:hasPeriodNumber  ?period .
         OPTIONAL { ?e ekg:hasOutcome  ?outcome  }
         OPTIONAL { ?e ekg:hasTeamSide ?teamSide }
         FILTER (?player = <%s>)
@@ -72,7 +72,7 @@ def get_player_history(ttl_path: str, player_uri: str) -> list[dict]:
     rows = []
     for r in g.query(q):
         type_name = str(r.type).split("#")[-1]
-        if type_name in ("ActionEvent", "CardEvent"):
+        if type_name in ("PlayerAction", "Card"):
             continue
         rows.append({
             "event"    : str(r.e),
@@ -87,7 +87,7 @@ def get_player_history(ttl_path: str, player_uri: str) -> list[dict]:
 
 
 def get_event_chain(ttl_path: str, event_uri: str, depth: int = 5) -> list[dict]:
-    """Walk PRECEDED_BY backwards up to `depth` steps from event_uri."""
+    """Walk precededBy backwards up to `depth` steps from event_uri."""
     g = _load(ttl_path)
     chain = []
     cur   = event_uri
@@ -95,11 +95,11 @@ def get_event_chain(ttl_path: str, event_uri: str, depth: int = 5) -> list[dict]
         q = """
         PREFIX ekg: <http://soccerekg.org/ontology#>
         SELECT ?prev ?type ?hasTime ?minute ?period WHERE {
-            <%s> ekg:PRECEDED_BY ?prev .
+            <%s> ekg:precededBy ?prev .
             ?prev a ?type ;
                   ekg:hasTime   ?hasTime ;
                   ekg:hasMinute ?minute ;
-                  ekg:hasPeriod ?period .
+                  ekg:hasPeriodNumber ?period .
             FILTER (?type != <http://www.w3.org/2002/07/owl#NamedIndividual>)
         }
         LIMIT 1
@@ -109,11 +109,11 @@ def get_event_chain(ttl_path: str, event_uri: str, depth: int = 5) -> list[dict]
             break
         r = results[0]
         type_name = str(r.type).split("#")[-1]
-        if type_name in ("ActionEvent", "CardEvent"):
+        if type_name in ("PlayerAction", "Card"):
             # pick a more specific type if possible
             for t in g.objects(r.prev, RDF.type):
                 tn = str(t).split("#")[-1]
-                if tn not in ("ActionEvent", "CardEvent",
+                if tn not in ("PlayerAction", "Card",
                                "NamedIndividual", "Class"):
                     type_name = tn
                     break
@@ -129,22 +129,22 @@ def get_event_chain(ttl_path: str, event_uri: str, depth: int = 5) -> list[dict]
 
 
 def get_triggered_card(ttl_path: str, event_uri: str) -> list[dict]:
-    """Check whether this foul event TRIGGERED a card."""
+    """Check whether this foul event triggered a card."""
     g = _load(ttl_path)
     q = """
     PREFIX ekg:  <http://soccerekg.org/ontology#>
     SELECT ?card ?type ?hasTime ?player WHERE {
-        <%s> ekg:TRIGGERED ?card .
+        <%s> ekg:triggered ?card .
         ?card a ?type ;
               ekg:hasTime ?hasTime .
-        OPTIONAL { ?player ekg:PERFORMED ?card }
+        OPTIONAL { ?player ekg:performed ?card }
         FILTER (?type != <http://www.w3.org/2002/07/owl#NamedIndividual>)
     }
     """ % event_uri
     rows = []
     for r in g.query(q):
         type_name = str(r.type).split("#")[-1]
-        if type_name in ("ActionEvent", "CardEvent"):
+        if type_name in ("PlayerAction", "Card"):
             continue
         player_label = None
         if r.player:
@@ -174,13 +174,13 @@ def get_match_state(ttl_path: str, match_uri: str) -> dict:
         lbl = list(g.objects(at, RDFS.label))
         away_team = str(lbl[0]) if lbl else str(at).split("/")[-1]
 
-    # count goals per team using INVOLVED_IN
+    # count goals per team using involvedTeam
     q_goals = """
     PREFIX ekg:  <http://soccerekg.org/ontology#>
     SELECT ?team (COUNT(?e) AS ?n) WHERE {
-        ?e a ekg:GoalEvent ;
-           ekg:IN_MATCH <%s> ;
-           ekg:INVOLVED_IN ?team .
+        ?e a ekg:Goal ;
+           ekg:inMatch <%s> ;
+           ekg:involvedTeam ?team .
     } GROUP BY ?team
     """ % match_uri
     home_goals = away_goals = 0
@@ -197,9 +197,9 @@ def get_match_state(ttl_path: str, match_uri: str) -> dict:
     q_ft = """
     PREFIX ekg: <http://soccerekg.org/ontology#>
     SELECT ?ft ?period ?minute WHERE {
-        ?e a ekg:GoalEvent ;
-           ekg:IN_MATCH <%s> ;
-           ekg:hasPeriod ?period ;
+        ?e a ekg:Goal ;
+           ekg:inMatch <%s> ;
+           ekg:hasPeriodNumber ?period ;
            ekg:hasMinute ?minute .
         OPTIONAL { ?e ekg:hasFullText ?ft }
     }
@@ -220,19 +220,19 @@ def get_match_state(ttl_path: str, match_uri: str) -> dict:
 
 
 def get_team_events(ttl_path: str, team_uri: str) -> dict:
-    """Count of each event type INVOLVED_IN this team."""
+    """Count of each event type involvedTeam this team."""
     g = _load(ttl_path)
     q = """
     PREFIX ekg:  <http://soccerekg.org/ontology#>
     SELECT ?type (COUNT(?e) AS ?n) WHERE {
-        ?e ekg:INVOLVED_IN <%s> ;
+        ?e ekg:involvedTeam <%s> ;
            a               ?type .
     } GROUP BY ?type
     """ % team_uri
     counts = {}
     for r in g.query(q):
         type_name = str(r.type).split("#")[-1]
-        if type_name in ("ActionEvent", "CardEvent", "NamedIndividual", "Class"):
+        if type_name in ("PlayerAction", "Card", "NamedIndividual", "Class"):
             continue
         counts[type_name] = int(r.n)
     return counts
@@ -270,7 +270,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name"       : "get_event_chain",
-            "description": "Walk PRECEDED_BY backwards from an event to show what led up to it.",
+            "description": "Walk precededBy backwards from an event to show what led up to it.",
             "parameters" : {
                 "type"      : "object",
                 "properties": {
@@ -316,7 +316,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name"       : "get_team_events",
-            "description": "Count of each event type linked to a team via INVOLVED_IN.",
+            "description": "Count of each event type linked to a team via involvedTeam.",
             "parameters" : {
                 "type"      : "object",
                 "properties": {
@@ -361,7 +361,7 @@ CRITICAL RULES — follow these strictly:
    unless get_player_history confirms it by counting previous events of the
    same type. If the player is unknown, describe the moment only.
 3. NEVER say a player 'scored' or 'it's a goal' unless the current event
-   type is GoalEvent. hasOutcome='goal' on a ShotEvent only means that shot
+   type is Goal. hasOutcome='goal' on a Shot only means that shot
    went in — it does not make the shot a goal event. Describe Shots as
    attempts, efforts, or strikes — never as goals.
 4. 1-3 sentences per event. Punchy, not an essay.
@@ -408,7 +408,7 @@ def _resolve_uris(event, ttl_path: str) -> tuple[str | None, str | None]:
     SELECT ?e ?match WHERE {
         ?e ekg:hasTime      "%s" ;
            ekg:hasEventType "%s" ;
-           ekg:IN_MATCH     ?match .
+           ekg:inMatch     ?match .
     }
     LIMIT 1
     """ % (gametime, action_type)
@@ -653,18 +653,18 @@ if __name__ == "__main__":
         PREFIX ekg:  <http://soccerekg.org/ontology#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
         SELECT ?e ?type ?hasTime ?minute ?period ?desc ?playerLabel ?teamLabel WHERE {
-            ?e ekg:IN_MATCH <%s> ;
+            ?e ekg:inMatch <%s> ;
                ekg:hasEventType ?type ;
                ekg:hasTime      ?hasTime ;
                ekg:hasMinute    ?minute ;
-               ekg:hasPeriod    ?period .
+               ekg:hasPeriodNumber    ?period .
             OPTIONAL { ?e ekg:hasDescription ?desc }
             OPTIONAL {
-                ?player ekg:PERFORMED ?e ;
+                ?player ekg:performed ?e ;
                         rdfs:label    ?playerLabel .
             }
             OPTIONAL {
-                ?e ekg:INVOLVED_IN ?team .
+                ?e ekg:involvedTeam ?team .
                 ?team rdfs:label   ?teamLabel .
             }
         }

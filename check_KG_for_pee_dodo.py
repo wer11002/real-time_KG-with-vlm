@@ -27,17 +27,17 @@ the 7 EFL Championship matches played on 2019-10-01.
 
 ONTOLOGY — key predicates you will see in the queries below
 -----------------------------------------------------------
-    ekg:IS_PERFORMED_BY   event   →  player who performed it
-    ekg:IN_MATCH          event   →  match the event belongs to
-    ekg:INVOLVED_IN       event   →  team involved in the event
-    ekg:PRECEDED_BY       event   →  the immediately previous event
-    ekg:PLAYS_FOR         player  →  team they play for
+    ekg:isPerformedBy   event   →  player who performed it
+    ekg:inMatch          event   →  match the event belongs to
+    ekg:involvedTeam       event   →  team involved in the event
+    ekg:precededBy       event   →  the immediately previous event
+    ekg:playsFor         player  →  team they play for
     ekg:hasEventType      event   →  string: 'Shot' | 'Goal' | …
     ekg:hasMinute         event   →  integer minute within its half
-    ekg:hasPeriod         event   →  1 = first half, 2 = second
+    ekg:hasPeriodNumber         event   →  1 = first half, 2 = second
     ekg:hasTime           event   →  string e.g. '1st 18:05'
     ekg:hasDescription    event   →  short VLM-generated description
-    ekg:TRIGGERED         foul    →  card event the foul caused
+    ekg:triggered         foul    →  card event the foul caused
 
 WHAT THIS SCRIPT DOES
 ---------------------
@@ -135,7 +135,7 @@ q2 = PREFIXES + """
 SELECT ?label (COUNT(?e) AS ?n) WHERE {
     ?match a ekg:Match .
     OPTIONAL { ?match rdfs:label ?label }
-    ?e ekg:IN_MATCH ?match .
+    ?e ekg:inMatch ?match .
 } GROUP BY ?match ?label
 ORDER BY ?label
 """
@@ -173,8 +173,8 @@ for r in g.query(q3):
 # ════════════════════════════════════════════════════════════════════
 # Sums every event each named player performed. We add a UNION over
 # both directions of the "player–performed–event" edge because some
-# versions of the schema declare the inverse property `PERFORMED`
-# (player → event) instead of `IS_PERFORMED_BY` (event → player), and
+# versions of the schema declare the inverse property `performed`
+# (player → event) instead of `isPerformedBy` (event → player), and
 # we want the query to work either way without code changes.
 
 banner("QUERY 4: Top 10 most active players")
@@ -183,8 +183,8 @@ q4 = PREFIXES + """
 SELECT ?label ?jersey (COUNT(?e) AS ?n) WHERE {
     ?p a ekg:Player ;
        rdfs:label ?label .
-    OPTIONAL { ?p ekg:hasJersey ?jersey }
-    { ?e ekg:IS_PERFORMED_BY ?p } UNION { ?p ekg:PERFORMED ?e }
+    OPTIONAL { ?p ekg:hasJerseyNumber ?jersey }
+    { ?e ekg:isPerformedBy ?p } UNION { ?p ekg:performed ?e }
 } GROUP BY ?p ?label ?jersey
 ORDER BY DESC(?n)
 LIMIT 10
@@ -209,14 +209,14 @@ q5 = PREFIXES + """
 SELECT ?matchLabel ?gametime ?playerLabel ?teamLabel WHERE {
     ?e ekg:hasEventType  "Goal" ;
        ekg:hasTime       ?gametime ;
-       ekg:IN_MATCH      ?match .
+       ekg:inMatch      ?match .
     ?match rdfs:label ?matchLabel .
     OPTIONAL {
-        { ?e ekg:IS_PERFORMED_BY ?p } UNION { ?p ekg:PERFORMED ?e }
+        { ?e ekg:isPerformedBy ?p } UNION { ?p ekg:performed ?e }
         ?p rdfs:label ?playerLabel .
     }
     OPTIONAL {
-        ?e ekg:INVOLVED_IN ?t .
+        ?e ekg:involvedTeam ?t .
         ?t rdfs:label      ?teamLabel .
     }
 } ORDER BY ?matchLabel ?gametime
@@ -234,7 +234,7 @@ for r in g.query(q5):
 # ════════════════════════════════════════════════════════════════════
 # QUERY 6 — Sample event drill-down
 # ════════════════════════════════════════════════════════════════════
-# Picks the first GoalEvent the SPARQL engine returns and prints EVERY
+# Picks the first Goal the SPARQL engine returns and prints EVERY
 # triple where that event is the subject. The point is to make the
 # data model concrete: instead of describing the predicates abstractly
 # the TA sees them attached to a real instance.
@@ -283,10 +283,10 @@ banner("QUERY 7: Player history — every event by Adam Armstrong")
 q7 = PREFIXES + """
 SELECT ?matchLabel ?gametime ?type WHERE {
     ?p rdfs:label "Adam Armstrong" .
-    { ?e ekg:IS_PERFORMED_BY ?p } UNION { ?p ekg:PERFORMED ?e }
+    { ?e ekg:isPerformedBy ?p } UNION { ?p ekg:performed ?e }
     ?e ekg:hasEventType ?type ;
        ekg:hasTime      ?gametime ;
-       ekg:IN_MATCH     ?match .
+       ekg:inMatch     ?match .
     ?match rdfs:label ?matchLabel .
 } ORDER BY ?matchLabel ?gametime
 """
@@ -303,14 +303,14 @@ if hits == 0:
 
 
 # ════════════════════════════════════════════════════════════════════
-# QUERY 8 — Event chain (PRECEDED_BY)
+# QUERY 8 — Event chain (precededBy)
 # ════════════════════════════════════════════════════════════════════
 # Picks any one match, finds its LAST event (one with no successor),
-# and walks the PRECEDED_BY edges backwards up to 10 hops. The output
+# and walks the precededBy edges backwards up to 10 hops. The output
 # reads from most-recent at the top to oldest at the bottom, so the
 # TA can see how the temporal chain is wired up.
 
-banner("QUERY 8: Event chain — walk PRECEDED_BY backwards (10 hops max)")
+banner("QUERY 8: Event chain — walk precededBy backwards (10 hops max)")
 
 # Pick one match to demonstrate on — first one in the KG by label.
 q8_pick = PREFIXES + """
@@ -331,11 +331,11 @@ else:
     print(f"  Match : {match_label}\n")
 
     # Find the "last" event in that match: an event that nothing else
-    # has as its PRECEDED_BY predecessor. (i.e. nothing came after it.)
+    # has as its precededBy predecessor. (i.e. nothing came after it.)
     q8_last = PREFIXES + f"""
     SELECT ?e WHERE {{
-        ?e ekg:IN_MATCH <{match_uri}> .
-        FILTER NOT EXISTS {{ ?next ekg:PRECEDED_BY ?e }}
+        ?e ekg:inMatch <{match_uri}> .
+        FILTER NOT EXISTS {{ ?next ekg:precededBy ?e }}
     }} LIMIT 1
     """
     current = None
@@ -356,7 +356,7 @@ else:
             SELECT ?type ?gametime ?prev WHERE {{
                 <{current}> ekg:hasEventType ?type ;
                             ekg:hasTime      ?gametime .
-                OPTIONAL {{ <{current}> ekg:PRECEDED_BY ?prev }}
+                OPTIONAL {{ <{current}> ekg:precededBy ?prev }}
             }} LIMIT 1
             """
             row = None
@@ -380,7 +380,7 @@ else:
 # QUERY 9 — Team event breakdown (matrix)
 # ════════════════════════════════════════════════════════════════════
 # For every team, count how many events of each action type were
-# linked to them via INVOLVED_IN. The raw SPARQL returns one row per
+# linked to them via involvedTeam. The raw SPARQL returns one row per
 # (team, type) pair; we pivot the rows into a small matrix in Python
 # so the TA can read it as a single table.
 
@@ -388,7 +388,7 @@ banner("QUERY 9: Team event breakdown — rows = teams, columns = types")
 
 q9 = PREFIXES + """
 SELECT ?teamLabel ?type (COUNT(?e) AS ?n) WHERE {
-    ?e ekg:INVOLVED_IN  ?t ;
+    ?e ekg:involvedTeam  ?t ;
        ekg:hasEventType ?type .
     ?t rdfs:label ?teamLabel .
 } GROUP BY ?teamLabel ?type
@@ -421,7 +421,7 @@ for team in sorted(matrix.keys()):
 # QUERY 10 — Cards triggered by fouls
 # ════════════════════════════════════════════════════════════════════
 # Cards are derived from ESPN data and linked back to the foul that
-# caused them with the `TRIGGERED` predicate. The query is wrapped in
+# caused them with the `triggered` predicate. The query is wrapped in
 # OPTIONAL blocks because not every card has a triggering foul in the
 # KG (yellow cards for dissent, for example, do not).
 
@@ -433,11 +433,11 @@ SELECT ?cardTime ?cardType ?playerLabel ?foulTime WHERE {
           ekg:hasTime      ?cardTime .
     FILTER (?cardType IN ("YellowCard", "RedCard"))
     OPTIONAL {
-        ?foul ekg:TRIGGERED ?card ;
+        ?foul ekg:triggered ?card ;
               ekg:hasTime   ?foulTime .
     }
     OPTIONAL {
-        { ?card ekg:IS_PERFORMED_BY ?p } UNION { ?p ekg:PERFORMED ?card }
+        { ?card ekg:isPerformedBy ?p } UNION { ?p ekg:performed ?card }
         ?p rdfs:label ?playerLabel .
     }
 } ORDER BY ?cardTime

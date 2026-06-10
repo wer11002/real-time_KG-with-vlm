@@ -15,9 +15,9 @@ COMMENTARY_CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?prop WHERE {
-                ekg:PRECEDED_BY a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                ekg:precededBy a <http://www.w3.org/2002/07/owl#ObjectProperty> .
                 ekg:hasMinute   a <http://www.w3.org/2002/07/owl#DatatypeProperty> .
-                BIND(ekg:PRECEDED_BY AS ?prop)
+                BIND(ekg:precededBy AS ?prop)
             }
         """,
     },
@@ -29,9 +29,9 @@ COMMENTARY_CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?p WHERE {
-                ekg:PERFORMED a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                ekg:PLAYS_FOR a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:PERFORMED AS ?p)
+                ekg:performed a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                ekg:playsFor a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:performed AS ?p)
             }
         """,
     },
@@ -43,8 +43,8 @@ COMMENTARY_CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?p WHERE {
-                ekg:TRIGGERED a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:TRIGGERED AS ?p)
+                ekg:triggered a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:triggered AS ?p)
             }
         """,
     },
@@ -60,7 +60,7 @@ COMMENTARY_CQS = [
                 ?m a <http://www.w3.org/2002/07/owl#DatatypeProperty> .
                 ?m <http://www.w3.org/2000/01/rdf-schema#label> "hasMinute" .
                 ?p a <http://www.w3.org/2002/07/owl#DatatypeProperty> .
-                ?p <http://www.w3.org/2000/01/rdf-schema#label> "hasPeriod" .
+                ?p <http://www.w3.org/2000/01/rdf-schema#label> "hasPeriodNumber" .
             }
         """,
     },
@@ -98,11 +98,11 @@ COMMENTARY_CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?a ?b WHERE {
-                ekg:INVOLVED_IN  a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                ekg:ShotEvent    a <http://www.w3.org/2002/07/owl#Class> .
-                ekg:hasPeriod    a <http://www.w3.org/2002/07/owl#DatatypeProperty> .
-                BIND(ekg:INVOLVED_IN AS ?a)
-                BIND(ekg:ShotEvent   AS ?b)
+                ekg:involvedTeam  a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                ekg:Shot    a <http://www.w3.org/2002/07/owl#Class> .
+                ekg:hasPeriodNumber    a <http://www.w3.org/2002/07/owl#DatatypeProperty> .
+                BIND(ekg:involvedTeam AS ?a)
+                BIND(ekg:Shot   AS ?b)
             }
         """,
     },
@@ -114,8 +114,8 @@ COMMENTARY_CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?p WHERE {
-                ekg:ASSISTED_BY a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:ASSISTED_BY AS ?p)
+                ekg:assistedBy a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:assistedBy AS ?p)
             }
         """,
     },
@@ -127,10 +127,10 @@ COMMENTARY_CQS = [
         "sparql": """
             PREFIX ekg: <http://soccerekg.org/ontology#>
             SELECT ?a ?b WHERE {
-                ekg:YellowCardEvent a <http://www.w3.org/2002/07/owl#Class> .
-                ekg:PERFORMED       a <http://www.w3.org/2002/07/owl#ObjectProperty> .
-                BIND(ekg:YellowCardEvent AS ?a)
-                BIND(ekg:PERFORMED       AS ?b)
+                ekg:YellowCard a <http://www.w3.org/2002/07/owl#Class> .
+                ekg:performed       a <http://www.w3.org/2002/07/owl#ObjectProperty> .
+                BIND(ekg:YellowCard AS ?a)
+                BIND(ekg:performed       AS ?b)
             }
         """,
     },

@@ -149,17 +149,17 @@ def load_events_for_match(g: Graph, match_uri: str) -> list[dict]:
     PREFIX ekg:  <http://soccerekg.org/ontology#>
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     SELECT ?e ?type ?minute ?period ?gametime ?playerLabel ?teamLabel WHERE {
-        ?e ekg:IN_MATCH      <%s> ;
+        ?e ekg:inMatch      <%s> ;
            ekg:hasEventType  ?type ;
            ekg:hasMinute     ?minute ;
-           ekg:hasPeriod     ?period ;
+           ekg:hasPeriodNumber     ?period ;
            ekg:hasTime       ?gametime .
         OPTIONAL {
-            { ?e ekg:IS_PERFORMED_BY ?p } UNION { ?p ekg:PERFORMED ?e }
+            { ?e ekg:isPerformedBy ?p } UNION { ?p ekg:performed ?e }
             ?p rdfs:label ?playerLabel .
         }
         OPTIONAL {
-            ?e ekg:INVOLVED_IN ?t .
+            ?e ekg:involvedTeam ?t .
             ?t rdfs:label      ?teamLabel .
         }
     }

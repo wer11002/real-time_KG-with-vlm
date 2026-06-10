@@ -585,12 +585,15 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # ── discover matches in KG ───────────────────────────────────────────────
+    # kg_builder writes matches typed as ekg:LeagueMatch (a subclass of
+    # ekg:Match in the new T-Box). The property path a/rdfs:subClassOf*
+    # picks up either direct typing for forward compatibility.
     g = _load(ttl_path)
     q_matches = """
     PREFIX ekg:  <http://soccerekg.org/ontology#>
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     SELECT DISTINCT ?match ?label WHERE {
-        ?match a ekg:Match .
+        ?match a/rdfs:subClassOf* ekg:Match .
         OPTIONAL { ?match rdfs:label ?label }
     }
     """

@@ -194,7 +194,12 @@ def metric_b_fact(human, ai_text):
 
 # ── Metric C — BERTScore ──────────────────────────────────────────────────
 
+_BERT_DISABLED = False
+
 def metric_c_bert(refs, hyps):
+    global _BERT_DISABLED
+    if _BERT_DISABLED:
+        return [None] * len(refs)
     try:
         from bert_score import score as bscore
         _, _, F1 = bscore(hyps, refs, lang="en", verbose=False,
@@ -202,6 +207,21 @@ def metric_c_bert(refs, hyps):
         return [round(f.item(), 3) for f in F1]
     except ImportError:
         print("WARNING: bert-score not installed. Run: pip install bert-score")
+        _BERT_DISABLED = True
+        return [None] * len(refs)
+    except AttributeError as e:
+        # bert-score vs transformers version skew (e.g.
+        # BertTokenizer.build_inputs_with_special_tokens removed). Disable
+        # BERTScore for the rest of this run instead of crashing.
+        print(f"WARNING: BERTScore disabled — bert-score/transformers version "
+              f"skew: {e}")
+        print("        Fix later with: pip install -U 'bert-score>=0.3.13' "
+              "'transformers<5'")
+        _BERT_DISABLED = True
+        return [None] * len(refs)
+    except Exception as e:
+        print(f"WARNING: BERTScore failed — {type(e).__name__}: {e}")
+        _BERT_DISABLED = True
         return [None] * len(refs)
 
 

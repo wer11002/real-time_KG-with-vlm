@@ -1,25 +1,39 @@
 """
 Commentary Evaluation — Human vs AI Agent
-Outputs a labeled side-by-side report with scores A, B, C per event
-and a summary table of mismatches.
 
-Single-match (legacy, text log):
-    python src/commentator/evaluate_commentary.py \
-        --ai-log  data/commentator_output/commentary_log.txt \
-        --human-json data/human_commentary.json \
-        --espn-csv   data/blackburn_forest_2019-10-01.csv
+Metrics computed per matched (GT, AI) event pair:
+    BLEU, METEOR, ROUGE-L      (per-pair, averaged)
+    CIDEr                       (corpus-level on the matched-pair list)
+    BERTScore                   (per-pair via DistilBERT, averaged)
+    Fact Overlap                (player / team / outcome heuristics)
+    CRR (Contextual Ref Rate)  (per-text count of "his second", "again", …)
+    Coverage / Precision / Recall / F1
 
-Single-match (JSON files):
+Multi-track ground truth — for a given match, AI commentary can be
+evaluated against several GT tracks side-by-side:
+    espn      — ESPN raw text pulled from data/kg_output/ekg.ttl
+    qwen_v1   — data/<match>/ground_truth_commentary.json
+    qwen_v2   — data/<match>/qwen_ground_truth_commentary_v2.json
+
+Single match — multi-track (recommended):
+    python src/commentator/evaluate_commentary.py --match "Blackburn"
+    python src/commentator/evaluate_commentary.py --match "Blackburn" \
+        --tracks espn qwen_v2
+
+All matches — multi-track (when every match has been re-built on new T-Box):
+    python src/commentator/evaluate_commentary.py --all
+
+Single match — legacy single-track (JSON files):
     python src/commentator/evaluate_commentary.py \
         --gt-file  ground_truth_commentary.json \
         --ai-file  ai_commentary.json \
         --match-dir "data/2019-10-01 - Blackburn Rovers - Nottingham Forest"
 
-All matches:
-    python src/commentator/evaluate_commentary.py --all
-    python src/commentator/evaluate_commentary.py --all \
-        --gt-file ground_truth_commentary.json \
-        --ai-file ai_commentary.json
+Single match — legacy text-log mode:
+    python src/commentator/evaluate_commentary.py \
+        --ai-log  data/commentator_output/commentary_log.txt \
+        --human-json data/human_commentary.json \
+        --espn-csv   data/blackburn_forest_2019-10-01.csv
 """
 
 import argparse
@@ -191,6 +205,77 @@ def metric_c_bert(refs, hyps):
         return [None] * len(refs)
 
 
+# ── Metric D — METEOR ─────────────────────────────────────────────────────
+
+_METEOR_READY = False
+def _ensure_meteor_corpora():
+    """Lazy idempotent download of NLTK resources METEOR needs."""
+    global _METEOR_READY
+    if _METEOR_READY:
+        return
+    import nltk
+    for pkg, path in (("wordnet",  "corpora/wordnet"),
+                      ("punkt",    "tokenizers/punkt"),
+                      ("omw-1.4",  "corpora/omw-1.4")):
+        try:
+            nltk.data.find(path)
+        except LookupError:
+            nltk.download(pkg, quiet=True)
+    _METEOR_READY = True
+
+
+def metric_meteor(ref: str, hyp: str) -> float:
+    """METEOR — synonyms + stemming + word order. 0..1."""
+    if not hyp or not ref:
+        return 0.0
+    try:
+        _ensure_meteor_corpora()
+        from nltk.translate.meteor_score import meteor_score
+        return round(meteor_score([ref.split()], hyp.split()), 3)
+    except Exception as e:
+        print(f"WARNING: METEOR failed: {e}")
+        return 0.0
+
+
+# ── Metric E — ROUGE-L (longest common subsequence F1) ────────────────────
+
+def metric_rouge_l(ref: str, hyp: str) -> float:
+    """ROUGE-L F1. 0..1."""
+    if not hyp or not ref:
+        return 0.0
+    try:
+        from rouge_score import rouge_scorer
+        scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+        return round(scorer.score(ref, hyp)["rougeL"].fmeasure, 3)
+    except ImportError:
+        print("WARNING: rouge-score not installed. Run: pip install rouge-score")
+        return 0.0
+
+
+# ── Metric F — CIDEr (corpus-level consensus) ─────────────────────────────
+
+def metric_cider_corpus(refs: list[str], hyps: list[str]) -> float:
+    """
+    CIDEr is consensus-based — TF-IDF weighted n-gram overlap across a
+    corpus. Computing it per-pair is meaningless; we run it once over
+    the whole matched-pair list. Returns 0.0 if dependencies are missing.
+    """
+    if not refs or not hyps or len(refs) != len(hyps):
+        return 0.0
+    try:
+        from pycocoevalcap.cider.cider import Cider
+        gts = {str(i): [refs[i]] for i in range(len(refs))}
+        res = {str(i): [hyps[i]] for i in range(len(hyps))}
+        score, _ = Cider().compute_score(gts, res)
+        return round(float(score), 3)
+    except ImportError:
+        print("WARNING: pycocoevalcap not installed. Run: pip install pycocoevalcap")
+        return 0.0
+    except Exception as e:
+        print(f"WARNING: CIDEr failed: {e}")
+        return 0.0
+
+
 # ── Parse ESPN CSV ────────────────────────────────────────────────────────
 
 def parse_espn_csv(path: str) -> list[dict]:
@@ -220,6 +305,118 @@ def parse_espn_csv(path: str) -> list[dict]:
                 "description": row.get("Full_Text", "").strip(),
             })
     return sorted(rows, key=lambda r: r["minute"])
+
+
+# ── Multi-track ground truth ──────────────────────────────────────────────
+#
+# Each match folder may have several ground-truth tracks; we evaluate the
+# AI commentary against EACH that's present. New T-Box property names
+# (isPerformedBy, inMatch, involvedTeam, hasPeriodNumber) are used in the
+# SPARQL queries that pull ESPN raw text from the KG.
+
+TRACK_FILES = {
+    "qwen_v1": "ground_truth_commentary.json",
+    "qwen_v2": "qwen_ground_truth_commentary_v2.json",
+}
+TRACK_LABELS = {
+    "espn"   : "ESPN raw",
+    "qwen_v1": "Qwen GT v1",
+    "qwen_v2": "Qwen GT v2",
+}
+ALL_TRACKS = ["espn", "qwen_v1", "qwen_v2"]
+
+
+def load_espn_from_kg(folder: Path) -> list[dict]:
+    """
+    Pull per-event ESPN raw text out of data/kg_output/ekg.ttl for the
+    given match folder. Returns events in the same dict shape as
+    parse_json_commentary() so they slot directly into evaluate_match_json.
+    """
+    from rdflib import Graph, Literal
+
+    ttl = DATA_DIR / "kg_output" / "ekg.ttl"
+    if not ttl.exists():
+        return []
+
+    g = Graph()
+    g.parse(str(ttl), format="turtle")
+
+    q_match = """
+    PREFIX ekg:  <http://soccerekg.org/ontology#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    SELECT ?match WHERE {
+        ?match a/rdfs:subClassOf* ekg:Match ;
+               rdfs:label         ?label .
+        FILTER (?label = ?folder)
+    } LIMIT 1
+    """
+    rows = list(g.query(q_match, initBindings={"folder": Literal(folder.name)}))
+    if not rows:
+        return []
+    match_uri = str(rows[0][0])
+
+    q_events = """
+    PREFIX ekg:  <http://soccerekg.org/ontology#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    SELECT ?gametime ?type ?fullText ?minute ?period ?player ?team WHERE {
+        ?e ekg:inMatch         <%s> ;
+           ekg:hasTime          ?gametime ;
+           ekg:hasEventType     ?type ;
+           ekg:hasFullText      ?fullText ;
+           ekg:hasMinute        ?minute ;
+           ekg:hasPeriodNumber  ?period .
+        OPTIONAL {
+            { ?e ekg:isPerformedBy ?p } UNION { ?p ekg:performed ?e }
+            ?p rdfs:label ?player .
+        }
+        OPTIONAL {
+            ?e ekg:involvedTeam ?t .
+            ?t rdfs:label       ?team .
+        }
+    }
+    ORDER BY ?period ?minute
+    """ % match_uri
+
+    events = []
+    for r in g.query(q_events):
+        try:
+            half = int(r.period)
+        except (TypeError, ValueError):
+            half = 1
+        try:
+            minute = float(r.minute)
+        except (TypeError, ValueError):
+            minute = 0.0
+        events.append({
+            "minute"    : minute,
+            "half"      : half,
+            "event_type": str(r.type),
+            "player"    : str(r.player) if r.player else "",
+            "team"      : str(r.team)   if r.team   else "",
+            "human_text": str(r.fullText),
+        })
+    return sorted(events, key=lambda e: e["minute"] + (45 if e["half"] == 2 else 0))
+
+
+def discover_tracks(folder: Path,
+                    requested: list[str] | None = None) -> dict[str, list[dict]]:
+    """{track_name: gt_events} for every track found under folder."""
+    out: dict[str, list[dict]] = {}
+    wanted = set(requested) if requested else set(ALL_TRACKS)
+
+    if "espn" in wanted:
+        espn = load_espn_from_kg(folder)
+        if espn:
+            out["espn"] = espn
+
+    for track, fname in TRACK_FILES.items():
+        if track not in wanted:
+            continue
+        p = folder / fname
+        if p.exists():
+            out[track] = parse_json_commentary(p)
+
+    return out
 
 
 # ── Parse JSON commentary files (GT or AI) ────────────────────────────────
@@ -318,6 +515,14 @@ def evaluate_match_json(
                         / n_matched, 3)
                   if n_matched else 0.0)
 
+    avg_meteor = (round(sum(metric_meteor(g, a) for g, a in zip(gt_texts, ai_texts))
+                        / n_matched, 3)
+                  if n_matched else 0.0)
+    avg_rouge_l = (round(sum(metric_rouge_l(g, a) for g, a in zip(gt_texts, ai_texts))
+                         / n_matched, 3)
+                   if n_matched else 0.0)
+    cider_score = metric_cider_corpus(gt_texts, ai_texts) if n_matched else 0.0
+
     bert_scores = metric_c_bert(gt_texts, ai_texts) if n_matched else []
     valid_bert  = [s for s in bert_scores if s is not None]
     avg_bert    = round(sum(valid_bert) / len(valid_bert), 3) if valid_bert else None
@@ -381,6 +586,9 @@ def evaluate_match_json(
         "recall"   : round(recall, 3),
         "f1"       : round(f1, 3),
         "bleu"     : avg_bleu,
+        "meteor"   : avg_meteor,
+        "rouge_l"  : avg_rouge_l,
+        "cider"    : cider_score,
         "bert"     : avg_bert,
         "crr_gt"   : crr_gt,
         "crr_ai"   : crr_ai,
@@ -721,6 +929,179 @@ def _print_aggregate_table(summaries: list[dict], out_path: Path):
     print(f"✓ Aggregate table saved to {out_path}")
 
 
+# ── Multi-track per-match table ───────────────────────────────────────────
+
+def _format_multitrack_table(
+    folder       : Path,
+    n_ai         : int,
+    per_track    : dict[str, dict],
+) -> str:
+    """Render the per-match × per-track table. Returns the report string."""
+    W = 102
+    out = [
+        "=" * W,
+        f"  EVALUATION — {folder.name}",
+        "=" * W,
+        f"  AI events: {n_ai}",
+        f"  Match available GT tracks: "
+        + ", ".join(TRACK_LABELS.get(k, k) for k in per_track),
+        "",
+        "  " + "─" * (W - 2),
+    ]
+    hdr = (f"  {'Track':<20} {'P':>5} {'R':>5} {'F1':>5} "
+           f"{'BLEU':>5} {'METEOR':>7} {'ROUGE':>6} {'CIDEr':>6} "
+           f"{'BERT':>6} {'CRR':>5}")
+    out.append(hdr)
+    out.append(f"  {'─'*20} {'─'*5} {'─'*5} {'─'*5} "
+               f"{'─'*5} {'─'*7} {'─'*6} {'─'*6} {'─'*6} {'─'*5}")
+
+    # winning track = highest mean of (BLEU, METEOR, ROUGE-L, BERT)
+    best_track, best_score = None, -1.0
+    for track, s in per_track.items():
+        bert = s["bert"] if s["bert"] is not None else 0.0
+        comp = (s["bleu"] + s["meteor"] + s["rouge_l"] + bert) / 4
+        if comp > best_score:
+            best_score, best_track = comp, track
+        bert_str = f"{s['bert']:.2f}" if s["bert"] is not None else " N/A"
+        out.append(
+            f"  {TRACK_LABELS.get(track, track):<20} "
+            f"{s['precision']:>5.2f} {s['recall']:>5.2f} {s['f1']:>5.2f} "
+            f"{s['bleu']:>5.2f} {s['meteor']:>7.2f} {s['rouge_l']:>6.2f} "
+            f"{s['cider']:>6.2f} {bert_str:>6} "
+            f"{(s['crr_ai']/100):>5.2f}"
+        )
+
+    out.append(f"  {'─'*20} {'─'*5} {'─'*5} {'─'*5} "
+               f"{'─'*5} {'─'*7} {'─'*6} {'─'*6} {'─'*6} {'─'*5}")
+    if best_track:
+        out.append("")
+        out.append(f"  WINNING GT (highest avg of BLEU/METEOR/ROUGE/BERT): "
+                   f"{TRACK_LABELS.get(best_track, best_track)}  ({best_score:.3f})")
+    out.append("")
+    return "\n".join(out)
+
+
+def _multitrack_aggregate_table(
+    per_match: list[tuple[str, dict[str, dict]]],
+    out_path : Path,
+):
+    """Build and save the cross-match aggregate. per_match is a list of
+    (folder_name, {track: summary})."""
+    W = 110
+    lines = [
+        "=" * W,
+        "  AGGREGATE — multi-track evaluation across all matches",
+        "=" * W,
+    ]
+    hdr = (f"  {'Match':<35} {'Track':<12} "
+           f"{'P':>5} {'R':>5} {'F1':>5} "
+           f"{'BLEU':>5} {'METEOR':>7} {'ROUGE':>6} {'CIDEr':>6} {'BERT':>6}")
+    lines.append(hdr)
+    lines.append(f"  {'─'*35} {'─'*12} {'─'*5} {'─'*5} {'─'*5} "
+                 f"{'─'*5} {'─'*7} {'─'*6} {'─'*6} {'─'*6}")
+
+    # Track best (match × track) per metric.
+    best = {k: ("", "", -1.0) for k in
+            ("bleu", "meteor", "rouge_l", "cider", "bert", "f1")}
+
+    # Running sums for averages per track.
+    track_sums : dict[str, dict[str, float]] = {}
+    track_n    : dict[str, int]              = {}
+
+    for match_name, tracks in per_match:
+        short = match_name.split(" - ", 1)[-1][:35]
+        for track, s in tracks.items():
+            bert = s["bert"] if s["bert"] is not None else 0.0
+            row = (f"  {short:<35} {TRACK_LABELS.get(track, track):<12} "
+                   f"{s['precision']:>5.2f} {s['recall']:>5.2f} {s['f1']:>5.2f} "
+                   f"{s['bleu']:>5.2f} {s['meteor']:>7.2f} {s['rouge_l']:>6.2f} "
+                   f"{s['cider']:>6.2f} {bert:>6.2f}")
+            lines.append(row)
+
+            for m in ("bleu", "meteor", "rouge_l", "cider", "f1"):
+                v = s[m] if s[m] is not None else 0.0
+                if v > best[m][2]:
+                    best[m] = (short, TRACK_LABELS.get(track, track), v)
+            if s["bert"] is not None and s["bert"] > best["bert"][2]:
+                best["bert"] = (short, TRACK_LABELS.get(track, track), s["bert"])
+
+            ts = track_sums.setdefault(track, {k: 0.0 for k in
+                ("precision","recall","f1","bleu","meteor","rouge_l","cider","bert")})
+            for k in ts:
+                v = s.get(k)
+                if v is None:
+                    continue
+                ts[k] += v
+            track_n[track] = track_n.get(track, 0) + 1
+
+    lines.append(f"  {'─'*35} {'─'*12} {'─'*5} {'─'*5} {'─'*5} "
+                 f"{'─'*5} {'─'*7} {'─'*6} {'─'*6} {'─'*6}")
+    for track, sums in track_sums.items():
+        n = track_n[track]
+        lines.append(
+            f"  {'AVERAGE':<35} {TRACK_LABELS.get(track, track):<12} "
+            f"{sums['precision']/n:>5.2f} {sums['recall']/n:>5.2f} "
+            f"{sums['f1']/n:>5.2f} {sums['bleu']/n:>5.2f} "
+            f"{sums['meteor']/n:>7.2f} {sums['rouge_l']/n:>6.2f} "
+            f"{sums['cider']/n:>6.2f} {sums['bert']/n:>6.2f}"
+        )
+
+    lines.append("")
+    lines.append("  Best (match × track) per metric:")
+    for m, (match, tk, v) in best.items():
+        if match:
+            lines.append(f"    {m:<8} : {v:.3f}  ←  {match}  /  {tk}")
+    lines.append("")
+
+    table = "\n".join(lines)
+    print(table)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(table, encoding="utf-8")
+    print(f"✓ Multi-track aggregate saved to {out_path}")
+
+
+def run_multitrack_match(
+    folder       : Path,
+    tracks_filter: list[str] | None = None,
+    tolerance_min: float            = 1.0,
+    out_path     : Path | None      = None,
+) -> dict[str, dict]:
+    """
+    Per-folder runner: load AI commentary, discover every GT track that
+    exists, evaluate AI vs each track, render the per-match table.
+    Returns {track: summary_dict} so the caller can aggregate further.
+    """
+    ai_path = folder / "ai_commentary.json"
+    if not ai_path.exists():
+        print(f"  [skip] {folder.name} — no ai_commentary.json")
+        return {}
+    ai_events = parse_json_commentary(ai_path)
+
+    tracks = discover_tracks(folder, tracks_filter)
+    if not tracks:
+        print(f"  [skip] {folder.name} — no GT tracks found "
+              f"(looked for: {tracks_filter or ALL_TRACKS})")
+        return {}
+
+    per_track: dict[str, dict] = {}
+    for name, gt_events in tracks.items():
+        summary = evaluate_match_json(
+            gt_events, ai_events,
+            match_name   = f"{folder.name} [track={name}]",
+            tolerance_min= tolerance_min,
+            verbose      = False,
+        )
+        per_track[name] = summary
+
+    report = _format_multitrack_table(folder, len(ai_events), per_track)
+    print(report)
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(report, encoding="utf-8")
+        print(f"  Saved: {out_path}")
+    return per_track
+
+
 # ── AI event loader (JSON or text-log fallback) ───────────────────────────
 
 def _raw_to_json_events(raw: list[dict]) -> list[dict]:
@@ -793,7 +1174,13 @@ def main():
 
     # multi-match
     ap.add_argument("--all",        action="store_true",
-                    help="Loop every match folder under data/ that has both files")
+                    help="Loop every match folder under data/ with AI commentary")
+    ap.add_argument("--match",      help="Partial folder-name filter — runs the "
+                                         "MULTI-TRACK evaluation for one match "
+                                         "(e.g. 'Blackburn')")
+    ap.add_argument("--tracks",     nargs="+",
+                    choices=["espn", "qwen_v1", "qwen_v2"],
+                    help="Limit the multi-track eval to specific tracks (default: all)")
     ap.add_argument("--gt-file",    default="ground_truth_commentary.json",
                     help="GT filename inside each match folder (default: ground_truth_commentary.json)")
     ap.add_argument("--ai-file",    default="ai_commentary.json",
@@ -803,54 +1190,59 @@ def main():
 
     args = ap.parse_args()
 
-    # ── MODE A: --all  ───────────────────────────────────────────────────
-    if args.all:
-        shared_log   = OUT_DIR / "commentary_log.txt"
-        shared_index = split_log_by_match(shared_log) if shared_log.exists() else {}
-        if shared_index:
-            headed = [k for k in shared_index if k != "__unsplit__"]
-            unsplit_n = len(shared_index.get("__unsplit__", []))
-            print(f"  Shared log: {len(headed)} match section(s)"
-                  + (f", {unsplit_n} pre-header lines" if unsplit_n else ""))
+    # ── MODE D: --match <partial> — MULTI-TRACK single match ────────────
+    if args.match and not args.all:
+        candidates = [f for f in DATA_DIR.iterdir()
+                      if f.is_dir() and args.match.lower() in f.name.lower()]
+        if not candidates:
+            print(f"No folder under {DATA_DIR} matching '{args.match}'.")
+            return
+        if len(candidates) > 1:
+            print(f"Multiple folders match '{args.match}':")
+            for c in candidates:
+                print(f"  - {c.name}")
+            print("Use a more specific filter.")
+            return
+        folder   = candidates[0]
+        out_name = f"evaluation_{args.match.lower().replace(' ', '_')}_multitrack.txt"
+        run_multitrack_match(
+            folder        = folder,
+            tracks_filter = args.tracks,
+            tolerance_min = args.tolerance,
+            out_path      = OUT_DIR / out_name,
+        )
+        return
 
-        # Folder qualifies if it has GT + (per-match JSON OR per-match log OR a section in shared log)
+    # ── MODE A: --all — MULTI-TRACK across every match folder ──────────
+    if args.all:
+        # Folder qualifies if it has ai_commentary.json AND at least one
+        # GT track (espn from KG, qwen_v1, or qwen_v2).
         folders = sorted(
             f for f in DATA_DIR.iterdir()
-            if f.is_dir() and (f / args.gt_file).exists()
-            and (
-                (f / args.ai_file).exists()
-                or (f / "commentary_log.txt").exists()
-                or f.name in shared_index
-            )
+            if f.is_dir() and (f / args.ai_file).exists()
         )
         if not folders:
-            print(f"No match folders found under {DATA_DIR} with '{args.gt_file}'.")
-            print(f"Also checked per-match logs and shared log: {shared_log}")
+            print(f"No match folders found under {DATA_DIR} with '{args.ai_file}'.")
             return
 
-        print(f"Found {len(folders)} match folder(s).\n")
-        summaries = []
+        print(f"Found {len(folders)} folder(s) with AI commentary.\n")
+        per_match: list[tuple[str, dict[str, dict]]] = []
         for folder in folders:
-            gt_events = parse_json_commentary(folder / args.gt_file)
-            ai_events = _load_ai_events(
-                folder / args.ai_file, shared_log,
-                match_name   = folder.name,
-                shared_index = shared_index,
+            tracks = run_multitrack_match(
+                folder        = folder,
+                tracks_filter = args.tracks,
+                tolerance_min = args.tolerance,
+                out_path      = OUT_DIR /
+                    f"evaluation_{folder.name.replace(' ', '_')}_multitrack.txt",
             )
-            if not ai_events:
-                print(f"  [skip] No AI events for {folder.name}")
-                continue
-            summary = evaluate_match_json(
-                gt_events, ai_events,
-                match_name   = folder.name,
-                tolerance_min= args.tolerance,
-                verbose      = True,
-            )
-            summaries.append(summary)
+            if tracks:
+                per_match.append((folder.name, tracks))
 
-        if summaries:
-            out_path = OUT_DIR / "evaluation_report_all.txt"
-            _print_aggregate_table(summaries, out_path)
+        if per_match:
+            _multitrack_aggregate_table(
+                per_match,
+                OUT_DIR / "evaluation_multitrack_aggregate.txt",
+            )
         return
 
     # ── MODE B: --match-dir  (JSON single match) ─────────────────────────

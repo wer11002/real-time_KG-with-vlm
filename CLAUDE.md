@@ -90,6 +90,7 @@ ESPN does **not** gate, filter, or validate VLM detections.
 | `evaluate.py` still uses 2-minute match tolerance despite timestamp accuracy improving to ±4s — may inflate precision | In plan |
 | No commentator module yet | Fixed (commentator.py + downstream scripts now use new T-Box property names) |
 | Ontology redesign for prediction use case | In progress (clean T-Box at `ekg_tbox.ttl`, applied to 15 downstream files) |
+| 6 of 7 matches still on old T-Box — need pipeline re-run to evaluate multi-track; only Blackburn has new T-Box data | In progress |
 
 ---
 
@@ -127,6 +128,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 026 | T-Box rewrite — `ekg_tbox.ttl` with 106 clean classes; `kg_builder.py` asserts single leaf class per instance; foreign-vocab (foaf, schema, prov) types dropped |
 | 027 | `hasPeriod` (Match→Period) split from `hasPeriodNumber` (Event→int); `hasJersey` → `hasJerseyNumber` |
 | 028 | 15 downstream files renamed: `IS_PERFORMED_BY` → `isPerformedBy` etc. (see commit for full list) |
+| 030 | `evaluate_commentary.py`: added METEOR/ROUGE-L/CIDEr metrics; multi-track GT support (ESPN raw, Qwen v1, Qwen v2); `--match` for single-match mode for partial T-Box re-runs |
 
 ---
 
@@ -155,6 +157,8 @@ python main.py --espn-every 3     # ESPN tick every 3 clips
 | `data/kg_output/nodes.csv` | KG nodes: players, teams, events, matches |
 | `data/kg_output/edges.csv` | KG edges: PERFORMED, PLAYS_FOR, PRECEDED_BY, etc. |
 | `data/commentator_output/` | Commentator logs (planned) |
+| `data/commentator_output/evaluation_<match>_multitrack.txt` | Per-match multi-GT evaluation |
+| `data/commentator_output/evaluation_multitrack_aggregate.txt` | Aggregate across all matches |
 | `data/logs/` | Pipeline run logs |
 
 ---

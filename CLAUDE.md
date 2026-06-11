@@ -93,6 +93,7 @@ ESPN does **not** gate, filter, or validate VLM detections.
 | 6 of 7 matches still on old T-Box — need pipeline re-run to evaluate multi-track; only Blackburn has new T-Box data | In progress |
 | Commentator Chinese drift persists on edge events even with English-only system prompt — needs prompt reinforcement or switch to Llama 3.1 70B | Pending |
 | Llama 3.1 70B access pending HuggingFace approval — stuck on Qwen 2.5-7B for now | Pending approval |
+| CIDEr corpus size disadvantage — our 7-match (~500 event) corpus is ~50× smaller than JAIST's MatchText (27k pairs); absolute CIDEr cannot match theirs regardless of commentary quality; report multi-ref CIDEr as best-effort honest signal, corpus-size caveat printed in every report | By design |
 
 ---
 
@@ -133,6 +134,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 030 | `evaluate_commentary.py`: added METEOR/ROUGE-L/CIDEr metrics; multi-track GT support (ESPN raw, Qwen v1, Qwen v2); `--match` for single-match mode for partial T-Box re-runs |
 | 031 | `ai_commentary.json` field `ai_text` renamed to `human_text` for uniform commentary key; evaluator falls back to both for safety |
 | 032 | `commentator.py`: ESPN-style 7-action few-shot prompt + 50-70 word length target + `frequency_penalty 0.3` + post-process regenerate if <35 words. Targets +50% BLEU/METEOR/ROUGE/CIDEr without changing the model |
+| 033 | `evaluate_commentary.py`: added BLEU-1 and ROUGE-1 columns; proper multi-reference CIDEr computed from all 3 GT tracks pooled per event (`metric_cider_multireference`); BLEU-4 weights fixed (was BLEU-2); hardcoded JAIST MatchAware SN-Long+retrieval reference numbers for honest direct comparison in every single-match and aggregate report |
 
 ---
 

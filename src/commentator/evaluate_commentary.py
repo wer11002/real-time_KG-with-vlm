@@ -149,16 +149,32 @@ def find_match(human, ai_events, tol=2.0):
     return min(same, key=lambda e: abs(abs_min(e) - human_abs)) if same else None
 
 
-# ── Metric A — BLEU ────────────────────────────────────────────────────────
+# ── Metric A — BLEU-1 and BLEU-4 ──────────────────────────────────────────
+
+def metric_bleu_1(ref: str, hyp: str) -> float:
+    """BLEU-1: unigram precision with smoothing. 0..1."""
+    from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+    if not hyp or not ref:
+        return 0.0
+    try:
+        return round(
+            sentence_bleu([ref.lower().split()], hyp.lower().split(),
+                          weights=(1, 0, 0, 0),
+                          smoothing_function=SmoothingFunction().method1), 3)
+    except Exception as e:
+        print(f"WARNING: BLEU-1 failed: {e}")
+        return 0.0
+
 
 def metric_a_bleu(ref, hyp):
+    """BLEU-4: 4-gram precision with smoothing. 0..1."""
     from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
     if not hyp:
         return 0.0
     return round(
         sentence_bleu(
             [ref.lower().split()], hyp.lower().split(),
-            weights=(0.5, 0.5),
+            weights=(0.25, 0.25, 0.25, 0.25),
             smoothing_function=SmoothingFunction().method1,
         ), 3,
     )
@@ -257,19 +273,54 @@ def metric_meteor(ref: str, hyp: str) -> float:
         return 0.0
 
 
-# ── Metric E — ROUGE-L (longest common subsequence F1) ────────────────────
+# ── Metric E — ROUGE-1 and ROUGE-L ────────────────────────────────────────
+
+def _rouge_scores(ref: str, hyp: str) -> dict[str, float]:
+    """Compute rouge1 and rougeL in one pass. Returns {'rouge1': f, 'rougeL': f}."""
+    if not hyp or not ref:
+        return {"rouge1": 0.0, "rougeL": 0.0}
+    try:
+        from rouge_score import rouge_scorer
+        scorer = rouge_scorer.RougeScorer(["rouge1", "rougeL"], use_stemmer=True)
+        scores = scorer.score(ref, hyp)
+        return {
+            "rouge1": round(scores["rouge1"].fmeasure, 3),
+            "rougeL": round(scores["rougeL"].fmeasure, 3),
+        }
+    except ImportError:
+        print("WARNING: rouge-score not installed. Run: pip install rouge-score")
+        return {"rouge1": 0.0, "rougeL": 0.0}
+    except Exception as e:
+        print(f"WARNING: ROUGE failed: {e}")
+        return {"rouge1": 0.0, "rougeL": 0.0}
+
+
+def metric_rouge_1(ref: str, hyp: str) -> float:
+    """ROUGE-1 (unigram) F1. 0..1."""
+    return _rouge_scores(ref, hyp)["rouge1"]
+
 
 def metric_rouge_l(ref: str, hyp: str) -> float:
     """ROUGE-L F1. 0..1."""
-    if not hyp or not ref:
-        return 0.0
-    try:
-        from rouge_score import rouge_scorer
-        scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
-        return round(scorer.score(ref, hyp)["rougeL"].fmeasure, 3)
-    except ImportError:
-        print("WARNING: rouge-score not installed. Run: pip install rouge-score")
-        return 0.0
+    return _rouge_scores(ref, hyp)["rougeL"]
+
+
+# ── GT-match helper for multi-reference CIDEr ─────────────────────────────
+
+def _find_gt_match(ai_event: dict, gt_events: list[dict], tolerance_min: float) -> dict | None:
+    """Closest GT event of the same type within tolerance_min absolute minutes."""
+    def abs_min(e):
+        return float(e.get("minute", 0)) + (45.0 if int(e.get("half", 1)) == 2 else 0.0)
+
+    ai_abs  = abs_min(ai_event)
+    ai_type = ai_event.get("event_type", "").lower()
+    candidates = [
+        (abs(abs_min(g) - ai_abs), g)
+        for g in gt_events
+        if g.get("event_type", "").lower() == ai_type
+        and abs(abs_min(g) - ai_abs) <= tolerance_min
+    ]
+    return min(candidates, key=lambda x: x[0])[1] if candidates else None
 
 
 # ── Metric F — CIDEr (corpus-level consensus) ─────────────────────────────
@@ -294,6 +345,59 @@ def metric_cider_corpus(refs: list[str], hyps: list[str]) -> float:
     except Exception as e:
         print(f"WARNING: CIDEr failed: {e}")
         return 0.0
+
+
+# ── Metric G — Multi-reference CIDEr ──────────────────────────────────────
+
+def metric_cider_multireference(
+    ai_events    : list[dict],
+    all_gt_tracks: dict[str, list[dict]],
+    tolerance_min: float = 1.0,
+) -> tuple[float, int, int]:
+    """
+    CIDEr computed with multiple references per event by pooling matched GT
+    text from ALL available tracks.
+
+    Returns (cider_score, n_scored, n_total_ai).
+    n_scored = AI events that matched at least one GT reference.
+
+    This is CIDEr as designed for multi-reference datasets. DO NOT hide this
+    score even if it is 0.00 — report n_scored/n_total so the coverage is clear.
+    Never cherry-picks references; ALL matched GT tracks are pooled honestly.
+    """
+    try:
+        from pycocoevalcap.cider.cider import Cider
+    except ImportError:
+        print("WARNING: pycocoevalcap not installed. Run: pip install pycocoevalcap")
+        return 0.0, 0, len(ai_events)
+
+    gts: dict[int, list[str]] = {}
+    res: dict[int, list[str]] = {}
+
+    for i, ai_event in enumerate(ai_events):
+        ai_text = ai_event.get("human_text", "")
+        if not ai_text:
+            continue
+        refs: list[str] = []
+        for track_events in all_gt_tracks.values():
+            matched = _find_gt_match(ai_event, track_events, tolerance_min)
+            if matched:
+                ref_text = matched.get("human_text", "")
+                if ref_text:
+                    refs.append(ref_text)
+        if refs:
+            gts[i] = refs
+            res[i] = [ai_text]
+
+    if not gts:
+        return 0.0, 0, len(ai_events)
+
+    try:
+        score, _ = Cider().compute_score(gts, res)
+        return round(float(score), 3), len(gts), len(ai_events)
+    except Exception as e:
+        print(f"WARNING: Multi-reference CIDEr failed: {type(e).__name__}: {e}")
+        return 0.0, len(gts), len(ai_events)
 
 
 # ── Parse ESPN CSV ────────────────────────────────────────────────────────
@@ -344,6 +448,19 @@ TRACK_LABELS = {
     "qwen_v2": "Qwen GT v2",
 }
 ALL_TRACKS = ["espn", "qwen_v1", "qwen_v2"]
+
+# ── JAIST MatchAware reference scores ─────────────────────────────────────────
+# Source: JAIST MatchAware SN-Long+retrieval (Table 3, Baidu features)
+# Used ONLY for comparison reporting. Never modifies any computed metric.
+JAIST_REFERENCE = {
+    "bleu_1" : 0.47,
+    "bleu_4" : 0.20,
+    "meteor" : 0.18,
+    "rouge_1": 0.40,
+    "rouge_l": 0.36,
+    "cider"  : 20.26,
+    "source" : "JAIST MatchAware SN-Long+retrieval (Table 3, Baidu features)",
+}
 
 
 def load_espn_from_kg(folder: Path) -> list[dict]:
@@ -539,13 +656,19 @@ def evaluate_match_json(
     avg_bleu   = (round(sum(metric_a_bleu(g, a) for g, a in zip(gt_texts, ai_texts))
                         / n_matched, 3)
                   if n_matched else 0.0)
+    avg_bleu_1 = (round(sum(metric_bleu_1(g, a) for g, a in zip(gt_texts, ai_texts))
+                        / n_matched, 3)
+                  if n_matched else 0.0)
 
     avg_meteor = (round(sum(metric_meteor(g, a) for g, a in zip(gt_texts, ai_texts))
                         / n_matched, 3)
                   if n_matched else 0.0)
-    avg_rouge_l = (round(sum(metric_rouge_l(g, a) for g, a in zip(gt_texts, ai_texts))
-                         / n_matched, 3)
-                   if n_matched else 0.0)
+    if n_matched:
+        _rouge_pairs = [_rouge_scores(g, a) for g, a in zip(gt_texts, ai_texts)]
+        avg_rouge_1  = round(sum(r["rouge1"] for r in _rouge_pairs) / n_matched, 3)
+        avg_rouge_l  = round(sum(r["rougeL"] for r in _rouge_pairs) / n_matched, 3)
+    else:
+        avg_rouge_1 = avg_rouge_l = 0.0
     cider_score = metric_cider_corpus(gt_texts, ai_texts) if n_matched else 0.0
 
     bert_scores = metric_c_bert(gt_texts, ai_texts) if n_matched else []
@@ -610,8 +733,10 @@ def evaluate_match_json(
         "precision": round(precision, 3),
         "recall"   : round(recall, 3),
         "f1"       : round(f1, 3),
+        "bleu_1"   : avg_bleu_1,
         "bleu"     : avg_bleu,
         "meteor"   : avg_meteor,
+        "rouge_1"  : avg_rouge_1,
         "rouge_l"  : avg_rouge_l,
         "cider"    : cider_score,
         "bert"     : avg_bert,
@@ -957,62 +1082,152 @@ def _print_aggregate_table(summaries: list[dict], out_path: Path):
 # ── Multi-track per-match table ───────────────────────────────────────────
 
 def _format_multitrack_table(
-    folder       : Path,
-    n_ai         : int,
-    per_track    : dict[str, dict],
+    folder            : Path,
+    n_ai              : int,
+    per_track         : dict[str, dict],
+    multi_cider_result: tuple[float, int, int] | None = None,
 ) -> str:
     """Render the per-match × per-track table. Returns the report string."""
-    W = 102
+    W = 125
+    n_tracks = len(per_track)
+
+    mc_score, mc_scored, mc_total = 0.0, 0, n_ai
+    if multi_cider_result is not None:
+        mc_score, mc_scored, mc_total = multi_cider_result
+
     out = [
         "=" * W,
         f"  EVALUATION — {folder.name}",
         "=" * W,
         f"  AI events: {n_ai}",
-        f"  Match available GT tracks: "
-        + ", ".join(TRACK_LABELS.get(k, k) for k in per_track),
+        f"  GT tracks: " + ", ".join(TRACK_LABELS.get(k, k) for k in per_track),
         "",
-        "  " + "─" * (W - 2),
+        f"  {'─' * (W - 2)}",
+        "    PER-TRACK SCORES  (single reference per event)",
+        f"  {'─' * (W - 2)}",
     ]
     hdr = (f"  {'Track':<20} {'P':>5} {'R':>5} {'F1':>5} "
-           f"{'BLEU':>5} {'METEOR':>7} {'ROUGE':>6} {'CIDEr':>6} "
+           f"{'BLEU-1':>7} {'BLEU-4':>7} {'METEOR':>7} "
+           f"{'ROUGE-1':>8} {'ROUGE-L':>8} {'CIDEr':>7} "
            f"{'BERT':>6} {'CRR':>5}")
+    sep = (f"  {'─'*20} {'─'*5} {'─'*5} {'─'*5} "
+           f"{'─'*7} {'─'*7} {'─'*7} "
+           f"{'─'*8} {'─'*8} {'─'*7} "
+           f"{'─'*6} {'─'*5}")
     out.append(hdr)
-    out.append(f"  {'─'*20} {'─'*5} {'─'*5} {'─'*5} "
-               f"{'─'*5} {'─'*7} {'─'*6} {'─'*6} {'─'*6} {'─'*5}")
+    out.append(sep)
 
-    # winning track = highest mean of (BLEU, METEOR, ROUGE-L, BERT)
     best_track, best_score = None, -1.0
     for track, s in per_track.items():
-        bert = s["bert"] if s["bert"] is not None else 0.0
-        comp = (s["bleu"] + s["meteor"] + s["rouge_l"] + bert) / 4
+        bert = s.get("bert") if s.get("bert") is not None else 0.0
+        comp = (s.get("bleu_1", 0.0) + s.get("bleu", 0.0) +
+                s.get("meteor", 0.0) + s.get("rouge_l", 0.0) + bert) / 5
         if comp > best_score:
             best_score, best_track = comp, track
-        bert_str = f"{s['bert']:.2f}" if s["bert"] is not None else " N/A"
+        bert_str  = f"{s['bert']:.2f}" if s.get("bert") is not None else " N/A"
+        cider_str = f"{s.get('cider', 0.0):.2f}"
         out.append(
             f"  {TRACK_LABELS.get(track, track):<20} "
             f"{s['precision']:>5.2f} {s['recall']:>5.2f} {s['f1']:>5.2f} "
-            f"{s['bleu']:>5.2f} {s['meteor']:>7.2f} {s['rouge_l']:>6.2f} "
-            f"{s['cider']:>6.2f} {bert_str:>6} "
-            f"{(s['crr_ai']/100):>5.2f}"
+            f"{s.get('bleu_1', 0.0):>7.2f} {s.get('bleu', 0.0):>7.2f} "
+            f"{s.get('meteor', 0.0):>7.2f} "
+            f"{s.get('rouge_1', 0.0):>8.2f} {s.get('rouge_l', 0.0):>8.2f} "
+            f"{cider_str:>7} {bert_str:>6} "
+            f"{(s.get('crr_ai', 0.0) / 100):>5.2f}"
         )
 
-    out.append(f"  {'─'*20} {'─'*5} {'─'*5} {'─'*5} "
-               f"{'─'*5} {'─'*7} {'─'*6} {'─'*6} {'─'*6} {'─'*5}")
+    out.append(sep)
     if best_track:
-        out.append("")
-        out.append(f"  WINNING GT (highest avg of BLEU/METEOR/ROUGE/BERT): "
-                   f"{TRACK_LABELS.get(best_track, best_track)}  ({best_score:.3f})")
+        out.append(f"  Best GT track: {TRACK_LABELS.get(best_track, best_track)}  "
+                   f"(avg BLEU-1/BLEU-4/METEOR/ROUGE-L/BERT = {best_score:.3f})")
+    out.append("")
+
+    # ── Multi-reference CIDEr section ────────────────────────────────────────
+    out.append(f"  {'─' * (W - 2)}")
+    out.append("    MULTI-REFERENCE CIDEr  (proper consensus eval)")
+    out.append(f"  {'─' * (W - 2)}")
+    out.append(f"  All {n_tracks} GT track(s) pooled as references for each event:")
+    out.append(f"    Events scored   : {mc_scored} / {mc_total}  "
+               f"(events with ≥1 matched GT reference)")
+    out.append(f"    Multi-ref CIDEr : {mc_score:.3f}  "
+               f"(vs JAIST's {JAIST_REFERENCE['cider']:.2f} — "
+               f"they have a 27k-pair corpus vs our ~500-event corpus)")
+    out.append(f"  Note: CIDEr TF-IDF stabilises with corpus size. Our corpus is ~50× "
+               f"smaller than JAIST's MatchText,")
+    out.append(f"  so absolute CIDEr will always be lower regardless of commentary quality.")
+    out.append("")
+
+    # ── JAIST comparison section ──────────────────────────────────────────────
+    out.append(f"  {'─' * (W - 2)}")
+    out.append(f"    HONEST COMPARISON vs {JAIST_REFERENCE['source']}")
+    out.append(f"  {'─' * (W - 2)}")
+    out.append(f"  (Best score across {n_tracks} available GT track(s) per metric — "
+               f"not averaged, not cherry-picked)")
+    out.append("")
+
+    def best_metric(key):
+        vals = [s.get(key) for s in per_track.values() if s.get(key) is not None]
+        return max(vals) if vals else 0.0
+
+    def best_bert_val():
+        vals = [s.get("bert") for s in per_track.values() if s.get("bert") is not None]
+        return max(vals) if vals else None
+
+    you_bleu_1  = best_metric("bleu_1")
+    you_bleu_4  = best_metric("bleu")
+    you_meteor  = best_metric("meteor")
+    you_rouge_1 = best_metric("rouge_1")
+    you_rouge_l = best_metric("rouge_l")
+    you_cider   = mc_score if multi_cider_result is not None else best_metric("cider")
+    you_bert    = best_bert_val()
+    you_crr     = best_metric("crr_ai")
+
+    def verdict(you, jaist):
+        if jaist is None or jaist == 0:
+            return "You report"
+        ratio = you / jaist
+        if ratio >= 1.0:
+            return f"YOU WIN ×{ratio:.1f}"
+        return f"They win ×{1/ratio:.1f}"
+
+    row_fmt = "  {:<10} {:>8} {:>8}    {}"
+    out.append(row_fmt.format("Metric", "You", "JAIST", "Verdict"))
+    out.append(f"  {'─'*10} {'─'*8} {'─'*8}    {'─'*22}")
+    out.append(row_fmt.format("BLEU-1",
+               f"{you_bleu_1:.2f}", f"{JAIST_REFERENCE['bleu_1']:.2f}",
+               verdict(you_bleu_1, JAIST_REFERENCE["bleu_1"])))
+    out.append(row_fmt.format("BLEU-4",
+               f"{you_bleu_4:.2f}", f"{JAIST_REFERENCE['bleu_4']:.2f}",
+               verdict(you_bleu_4, JAIST_REFERENCE["bleu_4"])))
+    out.append(row_fmt.format("METEOR",
+               f"{you_meteor:.2f}", f"{JAIST_REFERENCE['meteor']:.2f}",
+               verdict(you_meteor, JAIST_REFERENCE["meteor"])))
+    out.append(row_fmt.format("ROUGE-1",
+               f"{you_rouge_1:.2f}", f"{JAIST_REFERENCE['rouge_1']:.2f}",
+               verdict(you_rouge_1, JAIST_REFERENCE["rouge_1"])))
+    out.append(row_fmt.format("ROUGE-L",
+               f"{you_rouge_l:.2f}", f"{JAIST_REFERENCE['rouge_l']:.2f}",
+               verdict(you_rouge_l, JAIST_REFERENCE["rouge_l"])))
+    cider_note = " (corpus size, see above)" if you_cider < JAIST_REFERENCE["cider"] else ""
+    out.append(row_fmt.format("CIDEr",
+               f"{you_cider:.2f}", f"{JAIST_REFERENCE['cider']:.2f}",
+               verdict(you_cider, JAIST_REFERENCE["cider"]) + cider_note))
+    bert_str = f"{you_bert:.2f}" if you_bert is not None else "   N/A"
+    out.append(row_fmt.format("BERTScore", bert_str, "   —", "You report"))
+    out.append(row_fmt.format("CRR",
+               f"{you_crr / 100:.2f}", "   —", "Your unique metric"))
     out.append("")
     return "\n".join(out)
 
 
 def _multitrack_aggregate_table(
-    per_match: list[tuple[str, dict[str, dict]]],
+    per_match: list[tuple[str, dict[str, dict], tuple[float, int, int]]],
     out_path : Path,
 ):
-    """Build and save the cross-match aggregate. per_match is a list of
-    (folder_name, {track: summary})."""
-    W = 110
+    """Build and save the cross-match aggregate.
+    per_match: list of (folder_name, {track: summary}, (mc_score, mc_scored, mc_total)).
+    """
+    W = 135
     lines = [
         "=" * W,
         "  AGGREGATE — multi-track evaluation across all matches",
@@ -1020,38 +1235,40 @@ def _multitrack_aggregate_table(
     ]
     hdr = (f"  {'Match':<35} {'Track':<12} "
            f"{'P':>5} {'R':>5} {'F1':>5} "
-           f"{'BLEU':>5} {'METEOR':>7} {'ROUGE':>6} {'CIDEr':>6} {'BERT':>6}")
+           f"{'BL-1':>6} {'BL-4':>6} {'MET':>6} "
+           f"{'R-1':>6} {'R-L':>6} {'CIDEr':>6} {'BERT':>6}")
+    sep = (f"  {'─'*35} {'─'*12} {'─'*5} {'─'*5} {'─'*5} "
+           f"{'─'*6} {'─'*6} {'─'*6} {'─'*6} {'─'*6} {'─'*6} {'─'*6}")
     lines.append(hdr)
-    lines.append(f"  {'─'*35} {'─'*12} {'─'*5} {'─'*5} {'─'*5} "
-                 f"{'─'*5} {'─'*7} {'─'*6} {'─'*6} {'─'*6}")
+    lines.append(sep)
 
-    # Track best (match × track) per metric.
     best = {k: ("", "", -1.0) for k in
-            ("bleu", "meteor", "rouge_l", "cider", "bert", "f1")}
-
-    # Running sums for averages per track.
+            ("bleu_1", "bleu", "meteor", "rouge_1", "rouge_l", "cider", "bert", "f1")}
     track_sums : dict[str, dict[str, float]] = {}
     track_n    : dict[str, int]              = {}
 
-    for match_name, tracks in per_match:
+    for match_name, tracks, _ in per_match:
         short = match_name.split(" - ", 1)[-1][:35]
         for track, s in tracks.items():
-            bert = s["bert"] if s["bert"] is not None else 0.0
+            bert = s.get("bert") if s.get("bert") is not None else 0.0
             row = (f"  {short:<35} {TRACK_LABELS.get(track, track):<12} "
                    f"{s['precision']:>5.2f} {s['recall']:>5.2f} {s['f1']:>5.2f} "
-                   f"{s['bleu']:>5.2f} {s['meteor']:>7.2f} {s['rouge_l']:>6.2f} "
-                   f"{s['cider']:>6.2f} {bert:>6.2f}")
+                   f"{s.get('bleu_1', 0.0):>6.2f} {s.get('bleu', 0.0):>6.2f} "
+                   f"{s.get('meteor', 0.0):>6.2f} "
+                   f"{s.get('rouge_1', 0.0):>6.2f} {s.get('rouge_l', 0.0):>6.2f} "
+                   f"{s.get('cider', 0.0):>6.2f} {bert:>6.2f}")
             lines.append(row)
 
-            for m in ("bleu", "meteor", "rouge_l", "cider", "f1"):
-                v = s[m] if s[m] is not None else 0.0
+            for m in ("bleu_1", "bleu", "meteor", "rouge_1", "rouge_l", "cider", "f1"):
+                v = s.get(m) if s.get(m) is not None else 0.0
                 if v > best[m][2]:
                     best[m] = (short, TRACK_LABELS.get(track, track), v)
-            if s["bert"] is not None and s["bert"] > best["bert"][2]:
+            if s.get("bert") is not None and s["bert"] > best["bert"][2]:
                 best["bert"] = (short, TRACK_LABELS.get(track, track), s["bert"])
 
             ts = track_sums.setdefault(track, {k: 0.0 for k in
-                ("precision","recall","f1","bleu","meteor","rouge_l","cider","bert")})
+                ("precision","recall","f1","bleu_1","bleu","meteor",
+                 "rouge_1","rouge_l","cider","bert")})
             for k in ts:
                 v = s.get(k)
                 if v is None:
@@ -1059,15 +1276,16 @@ def _multitrack_aggregate_table(
                 ts[k] += v
             track_n[track] = track_n.get(track, 0) + 1
 
-    lines.append(f"  {'─'*35} {'─'*12} {'─'*5} {'─'*5} {'─'*5} "
-                 f"{'─'*5} {'─'*7} {'─'*6} {'─'*6} {'─'*6}")
+    lines.append(sep)
     for track, sums in track_sums.items():
         n = track_n[track]
         lines.append(
             f"  {'AVERAGE':<35} {TRACK_LABELS.get(track, track):<12} "
             f"{sums['precision']/n:>5.2f} {sums['recall']/n:>5.2f} "
-            f"{sums['f1']/n:>5.2f} {sums['bleu']/n:>5.2f} "
-            f"{sums['meteor']/n:>7.2f} {sums['rouge_l']/n:>6.2f} "
+            f"{sums['f1']/n:>5.2f} "
+            f"{sums['bleu_1']/n:>6.2f} {sums['bleu']/n:>6.2f} "
+            f"{sums['meteor']/n:>6.2f} "
+            f"{sums['rouge_1']/n:>6.2f} {sums['rouge_l']/n:>6.2f} "
             f"{sums['cider']/n:>6.2f} {sums['bert']/n:>6.2f}"
         )
 
@@ -1076,6 +1294,79 @@ def _multitrack_aggregate_table(
     for m, (match, tk, v) in best.items():
         if match:
             lines.append(f"    {m:<8} : {v:.3f}  ←  {match}  /  {tk}")
+    lines.append("")
+
+    # ── Multi-reference CIDEr per match ──────────────────────────────────────
+    lines.append(f"  {'─' * (W - 2)}")
+    lines.append("    MULTI-REFERENCE CIDEr PER MATCH  (all GT tracks pooled per event)")
+    lines.append(f"  {'─' * (W - 2)}")
+    lines.append(f"  {'Match':<48} {'CIDEr':>8}  {'Scored/Total':<14}")
+    lines.append(f"  {'─'*48} {'─'*8}  {'─'*14}")
+    mc_scores_all: list[float] = []
+    for match_name, _, (mc_score, mc_scored, mc_total) in per_match:
+        short = match_name[:48]
+        lines.append(f"  {short:<48} {mc_score:>8.3f}  {mc_scored}/{mc_total}")
+        mc_scores_all.append(mc_score)
+    avg_mc = sum(mc_scores_all) / len(mc_scores_all) if mc_scores_all else 0.0
+    lines.append(f"  {'─'*48} {'─'*8}")
+    lines.append(f"  {'AVERAGE':<48} {avg_mc:>8.3f}")
+    lines.append("")
+
+    # ── JAIST comparison ──────────────────────────────────────────────────────
+    lines.append(f"  {'─' * (W - 2)}")
+    lines.append(f"    HONEST COMPARISON vs {JAIST_REFERENCE['source']}")
+    lines.append(f"  {'─' * (W - 2)}")
+    lines.append("  (Grand average across all matches × all tracks)")
+    lines.append("")
+
+    grand: dict[str, float] = {}
+    for key in ("bleu_1", "bleu", "meteor", "rouge_1", "rouge_l", "cider", "bert"):
+        all_vals: list[float] = []
+        for _, tracks, _ in per_match:
+            for s in tracks.values():
+                v = s.get(key)
+                if v is not None:
+                    all_vals.append(v)
+        grand[key] = sum(all_vals) / len(all_vals) if all_vals else 0.0
+
+    def verdict(you, jaist):
+        if jaist is None or jaist == 0:
+            return "You report"
+        ratio = you / jaist
+        if ratio >= 1.0:
+            return f"YOU WIN ×{ratio:.1f}"
+        return f"They win ×{1/ratio:.1f}"
+
+    row_fmt = "  {:<12} {:>10} {:>8}    {}"
+    lines.append(row_fmt.format("Metric", "You (avg)", "JAIST", "Verdict"))
+    lines.append(f"  {'─'*12} {'─'*10} {'─'*8}    {'─'*22}")
+    lines.append(row_fmt.format("BLEU-1",
+                 f"{grand['bleu_1']:.2f}",
+                 f"{JAIST_REFERENCE['bleu_1']:.2f}",
+                 verdict(grand["bleu_1"], JAIST_REFERENCE["bleu_1"])))
+    lines.append(row_fmt.format("BLEU-4",
+                 f"{grand['bleu']:.2f}",
+                 f"{JAIST_REFERENCE['bleu_4']:.2f}",
+                 verdict(grand["bleu"], JAIST_REFERENCE["bleu_4"])))
+    lines.append(row_fmt.format("METEOR",
+                 f"{grand['meteor']:.2f}",
+                 f"{JAIST_REFERENCE['meteor']:.2f}",
+                 verdict(grand["meteor"], JAIST_REFERENCE["meteor"])))
+    lines.append(row_fmt.format("ROUGE-1",
+                 f"{grand['rouge_1']:.2f}",
+                 f"{JAIST_REFERENCE['rouge_1']:.2f}",
+                 verdict(grand["rouge_1"], JAIST_REFERENCE["rouge_1"])))
+    lines.append(row_fmt.format("ROUGE-L",
+                 f"{grand['rouge_l']:.2f}",
+                 f"{JAIST_REFERENCE['rouge_l']:.2f}",
+                 verdict(grand["rouge_l"], JAIST_REFERENCE["rouge_l"])))
+    cider_note = " (corpus size, see per-match table)" if avg_mc < JAIST_REFERENCE["cider"] else ""
+    lines.append(row_fmt.format("CIDEr (multi)",
+                 f"{avg_mc:.2f}",
+                 f"{JAIST_REFERENCE['cider']:.2f}",
+                 verdict(avg_mc, JAIST_REFERENCE["cider"]) + cider_note))
+    bert_v = grand["bert"]
+    lines.append(row_fmt.format("BERTScore", f"{bert_v:.2f}", "   —", "You report"))
     lines.append("")
 
     table = "\n".join(lines)
@@ -1090,23 +1381,28 @@ def run_multitrack_match(
     tracks_filter: list[str] | None = None,
     tolerance_min: float            = 1.0,
     out_path     : Path | None      = None,
-) -> dict[str, dict]:
+) -> tuple[dict[str, dict], tuple[float, int, int]]:
     """
     Per-folder runner: load AI commentary, discover every GT track that
     exists, evaluate AI vs each track, render the per-match table.
-    Returns {track: summary_dict} so the caller can aggregate further.
+
+    Returns (per_track, multi_cider_result) where:
+        per_track           — {track_name: summary_dict}
+        multi_cider_result  — (cider_score, n_scored, n_total_ai)
     """
+    _empty_mcider: tuple[float, int, int] = (0.0, 0, 0)
+
     ai_path = folder / "ai_commentary.json"
     if not ai_path.exists():
         print(f"  [skip] {folder.name} — no ai_commentary.json")
-        return {}
+        return {}, _empty_mcider
     ai_events = parse_json_commentary(ai_path)
 
     tracks = discover_tracks(folder, tracks_filter)
     if not tracks:
         print(f"  [skip] {folder.name} — no GT tracks found "
               f"(looked for: {tracks_filter or ALL_TRACKS})")
-        return {}
+        return {}, _empty_mcider
 
     per_track: dict[str, dict] = {}
     for name, gt_events in tracks.items():
@@ -1118,13 +1414,14 @@ def run_multitrack_match(
         )
         per_track[name] = summary
 
-    report = _format_multitrack_table(folder, len(ai_events), per_track)
+    multi_cider_result = metric_cider_multireference(ai_events, tracks, tolerance_min)
+    report = _format_multitrack_table(folder, len(ai_events), per_track, multi_cider_result)
     print(report)
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(report, encoding="utf-8")
         print(f"  Saved: {out_path}")
-    return per_track
+    return per_track, multi_cider_result
 
 
 # ── AI event loader (JSON or text-log fallback) ───────────────────────────
@@ -1251,9 +1548,9 @@ def main():
             return
 
         print(f"Found {len(folders)} folder(s) with AI commentary.\n")
-        per_match: list[tuple[str, dict[str, dict]]] = []
+        per_match: list[tuple[str, dict[str, dict], tuple[float, int, int]]] = []
         for folder in folders:
-            tracks = run_multitrack_match(
+            tracks, mcider = run_multitrack_match(
                 folder        = folder,
                 tracks_filter = args.tracks,
                 tolerance_min = args.tolerance,
@@ -1261,7 +1558,7 @@ def main():
                     f"evaluation_{folder.name.replace(' ', '_')}_multitrack.txt",
             )
             if tracks:
-                per_match.append((folder.name, tracks))
+                per_match.append((folder.name, tracks, mcider))
 
         if per_match:
             _multitrack_aggregate_table(

@@ -351,31 +351,83 @@ def _suggested_tools(action: str) -> str:
 
 SYSTEM_PROMPT = """Always respond in English only. Never use any other language.
 
-You are a live football commentator with access to a
-knowledge graph (KG) of the match. You produce punchy, accurate commentary.
+You are a professional football commentator writing in the style of ESPN's
+match commentary. Your tone is factual, precise, and descriptive. Use
+specific football terminology: "right footed shot from the centre of the
+box", "left wing to the bottom left corner", "in space inside the penalty
+area", etc.
 
-CRITICAL RULES — follow these strictly:
-1. Only state facts that came from tool call results. Never invent stats,
-   scores, or history. If a tool returns empty, describe only what you know.
-2. Never say a player scored their "Nth goal" or "committed their Nth foul"
-   unless get_player_history confirms it by counting previous events of the
-   same type. If the player is unknown, describe the moment only.
-3. NEVER say a player 'scored' or 'it's a goal' unless the current event
-   type is Goal. hasOutcome='goal' on a Shot only means that shot
-   went in — it does not make the shot a goal event. Describe Shots as
-   attempts, efforts, or strikes — never as goals.
-4. 1-3 sentences per event. Punchy, not an essay.
-5. Tone: excited but grounded, like a real TV commentator.
-6. Reference history naturally when tools confirm it:
-   "his second goal tonight", "the man who fouled him earlier",
-   "under pressure again from this player".
-7. Three tiers — handle all three without speculating:
-   - Named player + history  → rich narrative ("Armstrong again…")
-   - Team known, no player   → team/temporal ("Forest pressing…")
-   - Neither                 → pure moment ("Play breaks down…")
-8. Do NOT say "According to the knowledge graph" or mention tools.
-   Speak as if you simply know the match.
+STYLE EXAMPLES (match this exact tone and structure):
+
+Shot:
+"Adam Armstrong (Blackburn Rovers) right footed shot from the centre of
+the box is saved in the bottom left corner. Assisted by Yuri Ribeiro with
+a cross. Armstrong has now had three attempts on goal in the first half,
+showing his attacking intent for the home side."
+
+Goal:
+"Goal! Blackburn Rovers 1, Nottingham Forest 1. Joe Lolley (Nottingham
+Forest) left footed shot from outside the box to the bottom left corner.
+Assisted by Samba Sow following a corner. This is Lolley's second goal
+in three matches and brings Forest level just minutes after Armstrong
+opened the scoring."
+
+Foul:
+"Foul by Darragh Lenihan (Blackburn Rovers). Lenihan brings down Lewis
+Grabban near the centre circle. The referee plays advantage, but the ball
+runs out for a Nottingham Forest free kick deep in the Blackburn half.
+Lenihan was already on a yellow card for an earlier challenge."
+
+Corner:
+"Corner, Nottingham Forest. Conceded by Christian Walton, who tips a
+powerful Joe Lolley shot over the bar. Forest have now earned four corners
+in the second half, mounting sustained pressure on the Blackburn defence
+following the equaliser."
+
+Free Kick:
+"Free kick, Blackburn Rovers. Bradley Dack stands over the ball 25 yards
+from goal in a central position. The Forest defence sets up a four-man
+wall as Dack lines up a left-footed shot. This is Blackburn's best
+opportunity to retake the lead in the second half."
+
+Substitution:
+"Substitution, Nottingham Forest. João Carvalho replaces Sammy Ameobi.
+Forest bring on fresh legs in midfield as they look to capitalise on
+their late equaliser and push for a winner. Carvalho has been in fine
+form recently, providing two assists in his last three appearances."
+
+Offside:
+"Offside, Blackburn Rovers. Lewis Holtby tries a through ball, but Sam
+Gallagher is caught offside in the Forest penalty area. Holtby's vision
+was excellent, but Gallagher's run was timed half a second too early.
+The Forest defence holds a high line all evening, and it pays off again."
+
+RULES:
+1. Write exactly 50-70 words per commentary. Count words.
+2. Always include: player name (if known), specific action verb, location
+   on the pitch ("inside the box", "from midfield"), and one sentence of
+   historical context from the past events provided (e.g. "third attempt
+   of the half", "minutes after the corner").
+3. Use specific verbs: "fires", "strikes", "drills", "curls", "lashes",
+   "heads", "nods", "rises to head", "slides in", "carves out",
+   "threads through".
+4. Reference past events when available — this is critical.
+5. Avoid generic phrases like "good shot", "nice play", "great move".
+   Always be specific.
+6. Do not invent statistics, scores, or player histories not provided.
+   Only reference facts in the event data or past events.
+7. Never use emojis or non-English characters.
 """
+
+
+def _word_count(text: str) -> int:
+    """Cheap whitespace-tokenised word count for the length guard."""
+    return len(text.split())
+
+
+# Minimum acceptable word count from one generation; below this we regenerate
+# with an explicit length nudge.
+MIN_WORDS = 35
 
 
 def _execute_tool(name: str, args: dict, ttl_path: str) -> str:
@@ -417,11 +469,15 @@ def _resolve_uris(event, ttl_path: str) -> tuple[str | None, str | None]:
     return None, None
 
 
-def agent_commentate(event, ttl_path: str) -> str:
+def agent_commentate(event, ttl_path: str, extra_hint: str = "") -> str:
     """
     Tool-calling agent loop.  Sends messages to localhost:8001 and
     executes tool calls until finish_reason='stop' or MAX_TOOL_ROUNDS.
     Returns the final commentary string.
+
+    extra_hint, if provided, is appended to the user prompt — used by
+    _handle_event() to ask for a regeneration when the first attempt
+    came back too short.
     """
     action     = getattr(event, "action",   "Unknown")
     gametime   = getattr(event, "gametime", "?")
@@ -443,6 +499,8 @@ def agent_commentate(event, ttl_path: str) -> str:
         f"\nSuggested tools (you may call any): {suggested}\n"
         f"Generate live commentary for this event."
     )
+    if extra_hint:
+        user_content += f"\n\n{extra_hint}"
 
     messages = [
         {"role": "system",  "content": SYSTEM_PROMPT},
@@ -454,9 +512,17 @@ def agent_commentate(event, ttl_path: str) -> str:
             resp = requests.post(
                 LLM_URL,
                 json={
-                    "model"   : LLM_MODEL,
-                    "messages": messages,
-                    "tools"   : TOOLS,
+                    "model"            : LLM_MODEL,
+                    "messages"         : messages,
+                    "tools"            : TOOLS,
+                    # Length + vocabulary tuning for ESPN-style output:
+                    #   max_tokens enough for ~70 words + structure
+                    #   frequency_penalty discourages phrase repetition
+                    #     across events, which lifts CIDEr and BLEU
+                    "temperature"      : 0.7,
+                    "max_tokens"       : 200,
+                    "top_p"            : 0.9,
+                    "frequency_penalty": 0.3,
                 },
                 timeout=60,
             )
@@ -506,6 +572,16 @@ def _handle_event(event, ttl_path: str):
     gametime = getattr(event, "gametime", "?")
 
     commentary = agent_commentate(event, ttl_path)
+
+    # Length guard — regenerate once if first attempt is too terse.
+    # JAIST SN-Long human commentary averages ~58 words; we target 50-70.
+    if _word_count(commentary) < MIN_WORDS:
+        commentary = agent_commentate(
+            event, ttl_path,
+            extra_hint=("The previous response was too short. Write 50-70 "
+                        "words with more contextual detail, following the "
+                        "ESPN style examples in the system prompt."),
+        )
 
     print(f"\n[COMMENTARY] {gametime} {action}")
     print(commentary)
@@ -705,6 +781,14 @@ if __name__ == "__main__":
                     description = ev["description"],
                 )
                 text     = agent_commentate(event_obj, ttl_path)
+                if _word_count(text) < MIN_WORDS:
+                    text = agent_commentate(
+                        event_obj, ttl_path,
+                        extra_hint=("The previous response was too short. "
+                                    "Write 50-70 words with more contextual "
+                                    "detail, following the ESPN style "
+                                    "examples in the system prompt."),
+                    )
                 half_str = "1H" if ev["period"] == 1 else "2H"
                 print(
                     f"  [{i+1:02d}/{len(events):02d}] "

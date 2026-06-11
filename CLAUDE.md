@@ -92,6 +92,7 @@ ESPN does **not** gate, filter, or validate VLM detections.
 | Ontology redesign for prediction use case | In progress (clean T-Box at `ekg_tbox.ttl`, applied to 15 downstream files) |
 | 6 of 7 matches still on old T-Box — need pipeline re-run to evaluate multi-track; only Blackburn has new T-Box data | In progress |
 | Commentator Chinese drift persists on edge events even with English-only system prompt — needs prompt reinforcement or switch to Llama 3.1 70B | Pending |
+| Llama 3.1 70B access pending HuggingFace approval — stuck on Qwen 2.5-7B for now | Pending approval |
 
 ---
 
@@ -131,6 +132,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 028 | 15 downstream files renamed: `IS_PERFORMED_BY` → `isPerformedBy` etc. (see commit for full list) |
 | 030 | `evaluate_commentary.py`: added METEOR/ROUGE-L/CIDEr metrics; multi-track GT support (ESPN raw, Qwen v1, Qwen v2); `--match` for single-match mode for partial T-Box re-runs |
 | 031 | `ai_commentary.json` field `ai_text` renamed to `human_text` for uniform commentary key; evaluator falls back to both for safety |
+| 032 | `commentator.py`: ESPN-style 7-action few-shot prompt + 50-70 word length target + `frequency_penalty 0.3` + post-process regenerate if <35 words. Targets +50% BLEU/METEOR/ROUGE/CIDEr without changing the model |
 
 ---
 

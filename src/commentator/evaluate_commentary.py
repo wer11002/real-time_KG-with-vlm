@@ -444,14 +444,19 @@ def discover_tracks(folder: Path,
 def parse_json_commentary(path: str | Path) -> list[dict]:
     """
     Load ground_truth_commentary.json or ai_commentary.json.
-    Expected fields: minute, half, event_type, player, team, human_text
-    Falls back to 'text' or 'commentary' if 'human_text' is absent.
+    Expected fields: minute, half, event_type, player, team, human_text.
+
+    The text field is read with a fallback chain so that legacy AI files
+    that wrote 'ai_text' (or sources using 'text' / 'commentary' /
+    'full_text') still evaluate correctly without re-generation. Without
+    this fallback all per-pair similarity metrics silently returned 0.
     """
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     events = []
     for e in data:
-        text = (e.get("human_text") or e.get("text") or
-                e.get("commentary") or e.get("full_text") or "")
+        text = (e.get("human_text") or e.get("ai_text")     or
+                e.get("text")       or e.get("commentary") or
+                e.get("full_text")  or "")
         events.append({
             "minute"    : float(e.get("minute", 0)),
             "half"      : int(e.get("half", 1)),

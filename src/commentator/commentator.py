@@ -718,7 +718,10 @@ if __name__ == "__main__":
                     "event_type": ev["action"],
                     "player"    : ev["player"],
                     "team"      : ev["team"],
-                    "ai_text"   : text,
+                    # Standardised key — same as GT files. Calling the
+                    # generated string 'human_text' keeps the schema
+                    # uniform across AI and ground-truth commentary.
+                    "human_text": text,
                 })
 
         with open(out_json, "w", encoding="utf-8") as f:

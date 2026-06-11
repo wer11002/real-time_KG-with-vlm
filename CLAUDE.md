@@ -87,7 +87,6 @@ ESPN does **not** gate, filter, or validate VLM detections.
 | Kit color collision — similar-shade teams map to same color name; raw color now stored as `hasDetectedColor` for debugging | Partial |
 | ESPN coverage gaps — tackles/headers/clearances not in ESPN, stored as `isMatched=false` with VLM description | By design |
 | `hasMinute` is minute-within-half (0–45+), not absolute match minute — cross-half SPARQL queries must add `HALFTIME_SEC / 60` when `hasPeriod = 2` | Known limitation |
-| `evaluate.py` still uses 2-minute match tolerance despite timestamp accuracy improving to ±4s — may inflate precision | In plan |
 | No commentator module yet | Fixed (commentator.py + downstream scripts now use new T-Box property names) |
 | Ontology redesign for prediction use case | In progress (clean T-Box at `ekg_tbox.ttl`, applied to 15 downstream files) |
 | 6 of 7 matches still on old T-Box — need pipeline re-run to evaluate multi-track; only Blackburn has new T-Box data | In progress |
@@ -135,6 +134,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 031 | `ai_commentary.json` field `ai_text` renamed to `human_text` for uniform commentary key; evaluator falls back to both for safety |
 | 032 | `commentator.py`: ESPN-style 7-action few-shot prompt + 50-70 word length target + `frequency_penalty 0.3` + post-process regenerate if <35 words. Targets +50% BLEU/METEOR/ROUGE/CIDEr without changing the model |
 | 033 | `evaluate_commentary.py`: added BLEU-1 and ROUGE-1 columns; proper multi-reference CIDEr computed from all 3 GT tracks pooled per event (`metric_cider_multireference`); BLEU-4 weights fixed (was BLEU-2); hardcoded JAIST MatchAware SN-Long+retrieval reference numbers for honest direct comparison in every single-match and aggregate report |
+| 034 | Cleanup: moved `evaluate.py`, `validate_confidence.py`, `check_KG_for_pee_dodo.py`, `ekg_explorer.py` to `deprecated/` — replaced by `src/commentator/evaluate_commentary.py` and `src/5_web_viz/server.py`; `deprecated/README.md` added with restore instructions |
 
 ---
 

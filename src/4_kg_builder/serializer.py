@@ -38,12 +38,10 @@ def event_to_context(event_uri: URIRef, g: Graph, n_preceding: int = 3) -> dict:
     if players:
         p_uri         = players[0]
         ctx["player"] = lit(p_uri, RDFS.label) or str(p_uri).split("#")[-1]
-        # team via playsFor reification
-        for edge in g.subjects(RDF.subject, p_uri):
-            if (edge, RDF.type, RDF.Statement) in g:
-                team_uri = list(g.objects(edge, RDF.object))
-                if team_uri:
-                    ctx["player_team"] = lit(team_uri[0], RDFS.label)
+        # team via direct playsFor triple
+        team_uris = list(g.objects(p_uri, EKG.playsFor))
+        if team_uris:
+            ctx["player_team"] = lit(team_uris[0], RDFS.label)
 
     # assist
     assists = list(g.objects(event_uri, EKG.assistedBy))

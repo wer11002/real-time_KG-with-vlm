@@ -152,10 +152,7 @@ def get_or_create_player(
     ekg         : EKG_Graph,
     match_date  : str = DEFAULT_MATCH_DATE,
 ) -> Tuple[str, bool]:
-    """
-    Player instance, single-typed as ekg:Player.
-    playsFor is reified with rdf:Statement so validFrom can attach.
-    """
+    """Player instance, single-typed as ekg:Player. playsFor is a direct triple."""
     pid    = normalize_id(player_name)
     is_new = pid not in ekg._seen_players
 
@@ -166,12 +163,7 @@ def get_or_create_player(
 
         if team_id:
             team_uri = ekg.team_uri(team_id)
-            edge_uri = ekg.plays_for_uri(pid, team_id, match_date)
-            ekg.g.add((edge_uri, RDF.type,      RDF.Statement))
-            ekg.g.add((edge_uri, RDF.subject,   player_uri))
-            ekg.g.add((edge_uri, RDF.predicate, EKG.playsFor))
-            ekg.g.add((edge_uri, RDF.object,    team_uri))
-            ekg.g.add((edge_uri, EKG.validFrom, Literal(match_date, datatype=XSD.date)))
+            ekg.g.add((player_uri, EKG.playsFor, team_uri))
 
         ekg._seen_players.add(pid)
 
@@ -207,12 +199,7 @@ def prepopulate_roster(roster_lookup, match_name: str,
                 ekg.g.add((player_uri, EKG.hasJerseyNumber, Literal(str(jersey))))
 
                 team_uri = ekg.team_uri(team_id)
-                edge_uri = ekg.plays_for_uri(pid, team_id, match_date)
-                ekg.g.add((edge_uri, RDF.type,      RDF.Statement))
-                ekg.g.add((edge_uri, RDF.subject,   player_uri))
-                ekg.g.add((edge_uri, RDF.predicate, EKG.playsFor))
-                ekg.g.add((edge_uri, RDF.object,    team_uri))
-                ekg.g.add((edge_uri, EKG.validFrom, Literal(match_date, datatype=XSD.date)))
+                ekg.g.add((player_uri, EKG.playsFor, team_uri))
                 # team→player back-link via the new T-Box's ekg:hasPlayer
                 ekg.g.add((team_uri, EKG.hasPlayer, player_uri))
 

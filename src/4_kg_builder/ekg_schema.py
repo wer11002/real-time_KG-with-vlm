@@ -96,6 +96,8 @@ class EKG_Graph:
 
     @staticmethod
     def plays_for_uri(player_id: str, team_id: str, date: str) -> URIRef:
+        # DEPRECATED (fix 035): playsFor is now a direct triple.
+        # Helper kept for backward compat — do not use in new code.
         return INST[f"plays_for_{player_id}_{team_id}_{date}"]
 
     # ── stats ──────────────────────────────────────────────────────────────
@@ -200,25 +202,16 @@ class EKG_Graph:
             q, initBindings={"p": self.player_uri(player_id)})]
 
     def player_team_at(self, player_id: str, date: str) -> list:
-        """TKG: which team was a player on at a given date?
-        Standard RDF reification on the playsFor predicate."""
+        """Which team does a player play for? Direct playsFor triple (fix 035)."""
         q = """
         PREFIX ekg:  <http://soccerekg.org/ontology#>
         PREFIX data: <http://soccerekg.org/data#>
         SELECT ?team WHERE {
-            ?edge rdf:type      rdf:Statement ;
-                  rdf:subject   ?p ;
-                  rdf:predicate ekg:playsFor ;
-                  rdf:object    ?team ;
-                  ekg:validFrom ?from .
-            OPTIONAL { ?edge ekg:validUntil ?until }
-            FILTER (?from <= ?date)
-            FILTER (!BOUND(?until) || ?until >= ?date)
+            ?p ekg:playsFor ?team .
         }
         """
         return [row[0] for row in self.g.query(q, initBindings={
-            "p"    : self.player_uri(player_id),
-            "date" : Literal(date, datatype=XSD.date),
+            "p": self.player_uri(player_id),
         })]
 
     # ── save / load ────────────────────────────────────────────────────────

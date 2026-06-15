@@ -135,6 +135,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 032 | `commentator.py`: ESPN-style 7-action few-shot prompt + 50-70 word length target + `frequency_penalty 0.3` + post-process regenerate if <35 words. Targets +50% BLEU/METEOR/ROUGE/CIDEr without changing the model |
 | 033 | `evaluate_commentary.py`: added BLEU-1 and ROUGE-1 columns; proper multi-reference CIDEr computed from all 3 GT tracks pooled per event (`metric_cider_multireference`); BLEU-4 weights fixed (was BLEU-2); hardcoded JAIST MatchAware SN-Long+retrieval reference numbers for honest direct comparison in every single-match and aggregate report |
 | 034 | Cleanup: moved `evaluate.py`, `validate_confidence.py`, `check_KG_for_pee_dodo.py`, `ekg_explorer.py` to `deprecated/` — replaced by `src/commentator/evaluate_commentary.py` and `src/5_web_viz/server.py`; `deprecated/README.md` added with restore instructions |
+| 035 | Removed RDF reification on `playsFor` — direct triples now used in `kg_builder.py` (both `get_or_create_player` and `prepopulate_roster`) and `serializer.py`. `ekg_schema.py` `player_team_at()` rewritten to direct SPARQL; `plays_for_uri()` marked deprecated. Eliminates `rdf:Statement` class appearing in Protégé and the resulting HermiT inconsistency. Temporal `validFrom` metadata dropped (unused on single-day dataset). Restore from git if multi-season player tracking is needed later |
 
 ---
 

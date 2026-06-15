@@ -144,6 +144,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 041 | T-Box (`ekg_tbox.ttl`): all `xsd:int` ranges changed to `xsd:integer`; `hasJerseyNumber` and `detectedJersey` changed to `xsd:integer`; `hasDetectedKitPattern` added (domain `ekg:Event`); `hasConfidence` removed entirely |
 | 042 | T-Box: removed `owl:AllDisjointClasses` on 6 top-level classes (was triggering 130+ false HermiT contradictions after typed literals enabled range checking in fix 038); removed `rdfs:domain ekg:Match` from all DatatypeProperty and `hasPeriod` — kept on `hasHomeTeam`/`hasAwayTeam`/`officiatedBy`/`hasEvent` |
 | 043 | `check_consistency.py` — CPU-only HermiT runner via owlready2; prints CONSISTENT or lists classes inferred as `owl:Nothing`; use instead of opening Protégé for quick iteration |
+| 044 | `check_consistency.py`: convert TTL → temp RDF/XML before loading (owlready2 cannot parse Turtle); enumerate all inconsistent classes + sample individuals after failure; suppress owlready2 cyclic-subclass noise |
 
 ---
 

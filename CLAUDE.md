@@ -142,6 +142,8 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 039 | `kg_builder.py`: all numeric/boolean/date writes now go through `add_typed_triple()`; logging wired to `typing_warnings.log`; `detectedJersey` and `hasJerseyNumber` write `xsd:integer`; `hasPeriodNumber` stays `xsd:integer`; `hasDate` always `xsd:date` |
 | 040 | `repair_literal_types.py` — one-off migration: retypes every existing literal in `ekg.ttl` to the correct xsd: type per T-Box; drops triples whose values cannot be coerced (logged). Auto-backup to `ekg_pre_repair_literals.ttl.bak` |
 | 041 | T-Box (`ekg_tbox.ttl`): all `xsd:int` ranges changed to `xsd:integer`; `hasJerseyNumber` and `detectedJersey` changed to `xsd:integer`; `hasDetectedKitPattern` added (domain `ekg:Event`); `hasConfidence` removed entirely |
+| 042 | T-Box: removed `owl:AllDisjointClasses` on 6 top-level classes (was triggering 130+ false HermiT contradictions after typed literals enabled range checking in fix 038); removed `rdfs:domain ekg:Match` from all DatatypeProperty and `hasPeriod` — kept on `hasHomeTeam`/`hasAwayTeam`/`officiatedBy`/`hasEvent` |
+| 043 | `check_consistency.py` — CPU-only HermiT runner via owlready2; prints CONSISTENT or lists classes inferred as `owl:Nothing`; use instead of opening Protégé for quick iteration |
 
 ---
 

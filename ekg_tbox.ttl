@@ -37,10 +37,12 @@ ekg:PitchZone    a owl:Class ; rdfs:label "PitchZone" ;
 ekg:Event        a owl:Class ; rdfs:label "Event" ;
                  rdfs:comment "Anything that happens during a match." .
 
-# Top-level disjointness — these CANNOT overlap
-[] a owl:AllDisjointClasses ;
-   owl:members ( ekg:Match ekg:Period ekg:Team ekg:Person
-                 ekg:PitchZone ekg:Event ) .
+# Disjointness REMOVED (fix 042) — was triggering 130+ false contradictions
+# in HermiT when combined with property domain inferences after typed literals
+# were enabled (fix 038). Single-leaf-class typing is enforced by kg_builder.py
+# (fix 026, ACTION_TO_CLASS map), so disjointness is redundant here.
+# If property domains ever cause issues, prefer relaxing the domain over
+# reintroducing disjointness.
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -274,7 +276,7 @@ ekg:officiatedBy      a owl:ObjectProperty ;
 ekg:hasEvent          a owl:ObjectProperty ;
     rdfs:label "hasEvent" ; rdfs:domain ekg:Match ; rdfs:range ekg:Event .
 ekg:hasPeriod         a owl:ObjectProperty ;
-    rdfs:label "hasPeriod" ; rdfs:domain ekg:Match ; rdfs:range ekg:Period .
+    rdfs:label "hasPeriod" ; rdfs:range ekg:Period .
 
 ekg:ofMatch           a owl:ObjectProperty ;
     rdfs:label "ofMatch" ; owl:inverseOf ekg:hasPeriod ;
@@ -331,19 +333,19 @@ ekg:replacedBy        a owl:ObjectProperty ;
 
 # Match
 ekg:hasName              a owl:DatatypeProperty ; rdfs:range xsd:string .
-ekg:hasDate              a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:date .
-ekg:hasKickoffTime       a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:time .
-ekg:hasAttendance        a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
-ekg:hasFinalScoreHome    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
-ekg:hasFinalScoreAway    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
-ekg:hasHalfTimeScoreHome a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
-ekg:hasHalfTimeScoreAway a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
-ekg:hasPossessionHome    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:decimal .
-ekg:hasPossessionAway    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:decimal .
-ekg:hasWeather           a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:string .
-ekg:hasLeague            a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:string .
-ekg:hasSeason            a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:string .
-ekg:hasVenue             a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:string .
+ekg:hasDate              a owl:DatatypeProperty ; rdfs:range xsd:date .
+ekg:hasKickoffTime       a owl:DatatypeProperty ; rdfs:range xsd:time .
+ekg:hasAttendance        a owl:DatatypeProperty ; rdfs:range xsd:integer .
+ekg:hasFinalScoreHome    a owl:DatatypeProperty ; rdfs:range xsd:integer .
+ekg:hasFinalScoreAway    a owl:DatatypeProperty ; rdfs:range xsd:integer .
+ekg:hasHalfTimeScoreHome a owl:DatatypeProperty ; rdfs:range xsd:integer .
+ekg:hasHalfTimeScoreAway a owl:DatatypeProperty ; rdfs:range xsd:integer .
+ekg:hasPossessionHome    a owl:DatatypeProperty ; rdfs:range xsd:decimal .
+ekg:hasPossessionAway    a owl:DatatypeProperty ; rdfs:range xsd:decimal .
+ekg:hasWeather           a owl:DatatypeProperty ; rdfs:range xsd:string .
+ekg:hasLeague            a owl:DatatypeProperty ; rdfs:range xsd:string .
+ekg:hasSeason            a owl:DatatypeProperty ; rdfs:range xsd:string .
+ekg:hasVenue             a owl:DatatypeProperty ; rdfs:range xsd:string .
 
 # Period
 ekg:hasPeriodNumber      a owl:DatatypeProperty ; rdfs:range xsd:integer .

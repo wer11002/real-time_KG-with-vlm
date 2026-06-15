@@ -18,6 +18,7 @@ Two entry points:
 
 import csv
 import json
+import logging
 import re
 import sys
 import time
@@ -41,7 +42,7 @@ if not _SCHEMA_FILE.exists():
         f"Fix: git checkout HEAD -- src/4_kg_builder/ekg_schema.py"
     )
 
-from ekg_schema import EKG_Graph, EKG, INST, ACTION_TO_CLASS
+from ekg_schema import EKG_Graph, EKG, INST, ACTION_TO_CLASS, typed_literal, add_typed_triple
 
 
 # ── Paths ──────────────────────────────────────────────────────────────────
@@ -52,6 +53,17 @@ CSV_PATH = DATA_DIR / "blackburn_forest_2019-10-01.csv"
 OUT_DIR  = DATA_DIR / "kg_output"
 TTL_PATH    = OUT_DIR  / "ekg.ttl"
 STREAM_PATH = OUT_DIR  / "events_stream.jsonl"
+
+_LOG_DIR = DATA_DIR / "logs"
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+logging.basicConfig(
+    level=logging.WARNING,
+    handlers=[
+        logging.FileHandler(str(_LOG_DIR / "typing_warnings.log")),
+        logging.StreamHandler(),
+    ],
+    format="%(asctime)s %(levelname)s %(message)s",
+)
 
 DEFAULT_MATCH_DATE = "2019-10-01"
 
@@ -120,7 +132,7 @@ def get_or_create_match(match_name: str, ekg: EKG_Graph) -> Tuple[str, str]:
     match_uri = ekg.match_uri(mid)
     ekg.g.add((match_uri, RDF.type,    EKG.LeagueMatch))
     ekg.g.add((match_uri, RDFS.label,  Literal(match_name)))
-    ekg.g.add((match_uri, EKG.hasDate, Literal(date)))
+    add_typed_triple(ekg.g, match_uri, EKG.hasDate, date, context=f"match={mid}")
 
     home, away = _extract_teams(match_name)
     if home:
@@ -196,7 +208,7 @@ def prepopulate_roster(roster_lookup, match_name: str,
                 player_uri = ekg.player_uri(pid)
                 ekg.g.add((player_uri, RDF.type,            EKG.Player))
                 ekg.g.add((player_uri, RDFS.label,          Literal(player_name)))
-                ekg.g.add((player_uri, EKG.hasJerseyNumber, Literal(str(jersey))))
+                add_typed_triple(ekg.g, player_uri, EKG.hasJerseyNumber, jersey, context=f"player={pid}")
 
                 team_uri = ekg.team_uri(team_id)
                 ekg.g.add((player_uri, EKG.playsFor, team_uri))
@@ -256,7 +268,7 @@ def _create_event_node(
     # Data properties carrying VLM / ESPN info.
     ekg.g.add((event_uri, EKG.hasEventType, Literal(event_type)))
     ekg.g.add((event_uri, EKG.hasTime,      Literal(time_raw)))
-    ekg.g.add((event_uri, EKG.isMatched,    Literal(matched, datatype=XSD.boolean)))
+    add_typed_triple(ekg.g, event_uri, EKG.isMatched, matched, context=f"event={event_id}")
 
     # hasMinute (decimal within half) + hasPeriodNumber (1 / 2).
     # The new T-Box reserves ekg:hasPeriod as an ObjectProperty
@@ -267,19 +279,17 @@ def _create_event_node(
         mm, ss   = t.strip().split(":")
         period   = 1 if half == "1st" else 2
         minute   = int(mm) + int(ss) / 60.0
-        ekg.g.add((event_uri, EKG.hasMinute,       Literal(round(minute, 3), datatype=XSD.decimal)))
-        ekg.g.add((event_uri, EKG.hasPeriodNumber, Literal(period,           datatype=XSD.integer)))
+        add_typed_triple(ekg.g, event_uri, EKG.hasMinute,       round(minute, 3), context=f"event={event_id}")
+        add_typed_triple(ekg.g, event_uri, EKG.hasPeriodNumber, period,           context=f"event={event_id}")
     except Exception:
         print(f"  [kg] WARNING: cannot parse hasMinute/hasPeriodNumber from '{time_raw}'")
 
     if full_text:
         ekg.g.add((event_uri, EKG.hasFullText,    Literal(full_text)))
-    if confidence is not None:
-        ekg.g.add((event_uri, EKG.hasConfidence,  Literal(float(confidence))))
     if description:
         ekg.g.add((event_uri, EKG.hasDescription, Literal(description)))
     if jersey:
-        ekg.g.add((event_uri, EKG.detectedJersey, Literal(str(jersey))))
+        add_typed_triple(ekg.g, event_uri, EKG.detectedJersey, jersey, context=f"event={event_id}")
     if team_color:
         ekg.g.add((event_uri, EKG.hasDetectedColor,       Literal(str(team_color))))
     if shorts_color:
@@ -287,7 +297,7 @@ def _create_event_node(
     if socks_color:
         ekg.g.add((event_uri, EKG.hasDetectedSocksColor,  Literal(str(socks_color))))
     if kit_pattern:
-        ekg.g.add((event_uri, EKG.hasKitPattern,  Literal(str(kit_pattern))))
+        ekg.g.add((event_uri, EKG.hasDetectedKitPattern, Literal(str(kit_pattern))))
     if pitch_zone:
         ekg.g.add((event_uri, EKG.hasPitchZone,   Literal(str(pitch_zone).lower().strip())))
     if body_part:
@@ -299,7 +309,7 @@ def _create_event_node(
     if team_side:
         ekg.g.add((event_uri, EKG.hasTeamSide,    Literal(str(team_side))))
     if ball_visible is not None:
-        ekg.g.add((event_uri, EKG.hasBallVisible, Literal(ball_visible, datatype=XSD.boolean)))
+        add_typed_triple(ekg.g, event_uri, EKG.hasBallVisible, ball_visible, context=f"event={event_id}")
 
     new_edges = []
 
@@ -310,7 +320,7 @@ def _create_event_node(
 
     # precededBy + inverse precedes
     if last_event is not None and match_id in last_event:
-        prev_uri = ekg.event_uri(last_event[match_id])
+        prev_uri = ekg.event_uri(last_event[match_id], match_id)
         ekg.g.add((event_uri, EKG.precededBy, prev_uri))
         ekg.g.add((prev_uri,  EKG.precedes,   event_uri))
         new_edges.append(f"event_{event_id} --[precededBy]--> event_{last_event[match_id]}")

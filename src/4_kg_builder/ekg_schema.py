@@ -15,6 +15,8 @@ Quick test:
     python ekg_schema.py
 """
 
+import logging
+import re
 from pathlib import Path
 from rdflib  import Graph, Namespace, URIRef, Literal, RDF, RDFS, OWL, XSD
 
@@ -227,6 +229,122 @@ class EKG_Graph:
     def load(self, path: str):
         """Merge an existing TTL into the graph (checkpoint resume)."""
         self.g.parse(path, format="turtle")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TYPED LITERAL HELPERS  (shared by kg_builder.py and repair_literal_types.py)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_log      = logging.getLogger("ekg.typing")
+_DATE_RE  = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+# Predicate local-name → expected XSD datatype, mirrored from ekg_tbox.ttl.
+# Any predicate NOT listed here stays as a plain xsd:string Literal.
+PROP_TYPES: dict = {
+    # xsd:integer
+    "hasJerseyNumber"     : XSD.integer,
+    "detectedJersey"      : XSD.integer,
+    "hasAge"              : XSD.integer,
+    "hasAttendance"       : XSD.integer,
+    "hasFinalScoreHome"   : XSD.integer,
+    "hasFinalScoreAway"   : XSD.integer,
+    "hasHalfTimeScoreHome": XSD.integer,
+    "hasHalfTimeScoreAway": XSD.integer,
+    "hasFoundedYear"      : XSD.integer,
+    "hasPeriodNumber"     : XSD.integer,
+    "hasSecond"           : XSD.integer,
+    "hasStartTime"        : XSD.integer,
+    "hasEndTime"          : XSD.integer,
+    "hasAddedTime"        : XSD.integer,
+    # xsd:decimal
+    "hasMinute"           : XSD.decimal,
+    "hasHeight"           : XSD.decimal,
+    "hasWeight"           : XSD.decimal,
+    "hasMarketValue"      : XSD.decimal,
+    "hasPossessionHome"   : XSD.decimal,
+    "hasPossessionAway"   : XSD.decimal,
+    "hasShotPower"        : XSD.decimal,
+    "hasShotAngle"        : XSD.decimal,
+    "hasExpectedGoals"    : XSD.decimal,
+    "hasPassDistance"     : XSD.decimal,
+    "hasXCoord"           : XSD.decimal,
+    "hasYCoord"           : XSD.decimal,
+    # xsd:boolean
+    "isMatched"           : XSD.boolean,
+    "hasBallVisible"      : XSD.boolean,
+    "hasOnTarget"         : XSD.boolean,
+    "hasPassSuccess"      : XSD.boolean,
+    # xsd:date
+    "hasDate"             : XSD.date,
+    "validFrom"           : XSD.date,
+    "validUntil"          : XSD.date,
+}
+
+
+def typed_literal(prop_local_name: str, value, context: str = ""):
+    """
+    Return a correctly xsd-typed Literal for the given predicate.
+
+    - Looks up expected datatype from PROP_TYPES.
+    - Attempts coercion. On success: returns typed Literal.
+    - On failure: logs a WARNING and returns None — caller MUST skip the triple.
+    - If prop is NOT in PROP_TYPES: returns plain Literal(str(value)).
+
+    context is included in warning messages for debugging.
+    """
+    target = PROP_TYPES.get(prop_local_name)
+
+    if target is None:
+        return Literal(str(value))
+
+    # Pass through already-correct Literals
+    if isinstance(value, Literal) and value.datatype == target:
+        return value
+
+    # Fast path for native Python booleans (str(True) == "True" which parses fine,
+    # but this avoids the string round-trip)
+    if isinstance(value, bool) and target == XSD.boolean:
+        return Literal(value, datatype=XSD.boolean)
+
+    s = str(value).strip()
+
+    try:
+        if target == XSD.integer:
+            return Literal(int(float(s)), datatype=XSD.integer)
+        if target == XSD.decimal:
+            return Literal(float(s), datatype=XSD.decimal)
+        if target == XSD.boolean:
+            lower = s.lower()
+            if lower in ("true", "1", "yes", "t"):
+                return Literal(True,  datatype=XSD.boolean)
+            if lower in ("false", "0", "no", "f"):
+                return Literal(False, datatype=XSD.boolean)
+            raise ValueError(f"unrecognised boolean {s!r}")
+        if target == XSD.date:
+            if not _DATE_RE.match(s):
+                raise ValueError(f"expected YYYY-MM-DD, got {s!r}")
+            return Literal(s, datatype=XSD.date)
+    except (ValueError, TypeError) as exc:
+        _log.warning(
+            "skip triple — could not coerce %s=%r to %s: %s [%s]",
+            prop_local_name, value, target, exc, context,
+        )
+        return None
+
+    return None  # safety net
+
+
+def add_typed_triple(g, subject, predicate, raw_value, context: str = "") -> bool:
+    """
+    Convenience wrapper: look up type, coerce, add to graph.
+    Returns True if triple was written, False if coercion failed (triple skipped).
+    """
+    prop_local = str(predicate).split("#")[-1]
+    lit = typed_literal(prop_local, raw_value, context)
+    if lit is None:
+        return False
+    g.add((subject, predicate, lit))
+    return True
 
 
 # ═══════════════════════════════════════════════════════════════════════════

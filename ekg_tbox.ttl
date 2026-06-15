@@ -333,11 +333,11 @@ ekg:replacedBy        a owl:ObjectProperty ;
 ekg:hasName              a owl:DatatypeProperty ; rdfs:range xsd:string .
 ekg:hasDate              a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:date .
 ekg:hasKickoffTime       a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:time .
-ekg:hasAttendance        a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:int .
-ekg:hasFinalScoreHome    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:int .
-ekg:hasFinalScoreAway    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:int .
-ekg:hasHalfTimeScoreHome a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:int .
-ekg:hasHalfTimeScoreAway a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:int .
+ekg:hasAttendance        a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
+ekg:hasFinalScoreHome    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
+ekg:hasFinalScoreAway    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
+ekg:hasHalfTimeScoreHome a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
+ekg:hasHalfTimeScoreAway a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:integer .
 ekg:hasPossessionHome    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:decimal .
 ekg:hasPossessionAway    a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:decimal .
 ekg:hasWeather           a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:string .
@@ -346,14 +346,14 @@ ekg:hasSeason            a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:r
 ekg:hasVenue             a owl:DatatypeProperty ; rdfs:domain ekg:Match ; rdfs:range xsd:string .
 
 # Period
-ekg:hasPeriodNumber      a owl:DatatypeProperty ; rdfs:range xsd:int .
-ekg:hasStartTime         a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:int .
-ekg:hasEndTime           a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:int .
-ekg:hasAddedTime         a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:int .
+ekg:hasPeriodNumber      a owl:DatatypeProperty ; rdfs:range xsd:integer .
+ekg:hasStartTime         a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:integer .
+ekg:hasEndTime           a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:integer .
+ekg:hasAddedTime         a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:integer .
 
 # Team
 ekg:hasShortName         a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
-ekg:hasFoundedYear       a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:int .
+ekg:hasFoundedYear       a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:integer .
 ekg:hasPrimaryColor      a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
 ekg:hasSecondaryColor    a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
 ekg:hasJerseyColor       a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
@@ -363,8 +363,8 @@ ekg:hasKitPattern        a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:ra
 ekg:hasFormation         a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
 
 # Player
-ekg:hasJerseyNumber      a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:int .
-ekg:hasAge               a owl:DatatypeProperty ; rdfs:domain ekg:Person ; rdfs:range xsd:int .
+ekg:hasJerseyNumber      a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:integer .
+ekg:hasAge               a owl:DatatypeProperty ; rdfs:domain ekg:Person ; rdfs:range xsd:integer .
 ekg:hasNationality       a owl:DatatypeProperty ; rdfs:domain ekg:Person ; rdfs:range xsd:string .
 ekg:hasHeight            a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:decimal .
 ekg:hasWeight            a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:decimal .
@@ -374,7 +374,7 @@ ekg:hasMarketValue       a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:
 # Event (general)
 ekg:hasTime              a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
 ekg:hasMinute            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:decimal .
-ekg:hasSecond            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:int .
+ekg:hasSecond            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:integer .
 ekg:hasDescription       a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
 ekg:hasFullText          a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
 ekg:hasEventType         a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
@@ -383,11 +383,11 @@ ekg:hasBodyPart          a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:r
 ekg:hasPitchZone         a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
 ekg:hasFoulType          a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
 ekg:hasTeamSide          a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasConfidence        a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:float .
-ekg:detectedJersey       a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasDetectedColor     a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasDetectedShortsColor a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasDetectedSocksColor  a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
+ekg:detectedJersey       a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:integer .
+ekg:hasDetectedColor        a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
+ekg:hasDetectedShortsColor  a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
+ekg:hasDetectedSocksColor   a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
+ekg:hasDetectedKitPattern   a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
 ekg:hasXCoord            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:decimal .
 ekg:hasYCoord            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:decimal .
 ekg:isMatched            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:boolean .

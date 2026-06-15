@@ -136,6 +136,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 033 | `evaluate_commentary.py`: added BLEU-1 and ROUGE-1 columns; proper multi-reference CIDEr computed from all 3 GT tracks pooled per event (`metric_cider_multireference`); BLEU-4 weights fixed (was BLEU-2); hardcoded JAIST MatchAware SN-Long+retrieval reference numbers for honest direct comparison in every single-match and aggregate report |
 | 034 | Cleanup: moved `evaluate.py`, `validate_confidence.py`, `check_KG_for_pee_dodo.py`, `ekg_explorer.py` to `deprecated/` — replaced by `src/commentator/evaluate_commentary.py` and `src/5_web_viz/server.py`; `deprecated/README.md` added with restore instructions |
 | 035 | Removed RDF reification on `playsFor` — direct triples now used in `kg_builder.py` (both `get_or_create_player` and `prepopulate_roster`) and `serializer.py`. `ekg_schema.py` `player_team_at()` rewritten to direct SPARQL; `plays_for_uri()` marked deprecated. Eliminates `rdf:Statement` class appearing in Protégé and the resulting HermiT inconsistency. Temporal `validFrom` metadata dropped (unused on single-day dataset). Restore from git if multi-season player tracking is needed later |
+| 036 | `strip_reification.py` — one-off CPU script to clean existing `ekg.ttl` in-place: removes `rdf:Statement` reification on `playsFor`, replaces with direct triples. Lets users apply fix 035 data-side without re-running the VLM pipeline. Idempotent. Auto-backup to `ekg_pre_fix_035.ttl.bak` before write |
 
 ---
 
@@ -167,6 +168,7 @@ python main.py --espn-every 3     # ESPN tick every 3 clips
 | `data/commentator_output/evaluation_<match>_multitrack.txt` | Per-match multi-GT evaluation |
 | `data/commentator_output/evaluation_multitrack_aggregate.txt` | Aggregate across all matches |
 | `data/logs/` | Pipeline run logs |
+| `data/kg_output/ekg_pre_fix_035.ttl.bak` | Auto-backup written by `strip_reification.py` before in-place clean |
 
 ---
 

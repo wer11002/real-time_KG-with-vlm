@@ -274,10 +274,10 @@ PROP_TYPES: dict = {
     "hasBallVisible"      : XSD.boolean,
     "hasOnTarget"         : XSD.boolean,
     "hasPassSuccess"      : XSD.boolean,
-    # xsd:date
-    "hasDate"             : XSD.date,
-    "validFrom"           : XSD.date,
-    "validUntil"          : XSD.date,
+    # xsd:dateTime (HermiT excludes xsd:date from its OWL 2 datatype map)
+    "hasDate"             : XSD.dateTime,
+    "validFrom"           : XSD.dateTime,
+    "validUntil"          : XSD.dateTime,
 }
 
 
@@ -320,10 +320,14 @@ def typed_literal(prop_local_name: str, value, context: str = ""):
             if lower in ("false", "0", "no", "f"):
                 return Literal(False, datatype=XSD.boolean)
             raise ValueError(f"unrecognised boolean {s!r}")
-        if target == XSD.date:
-            if not _DATE_RE.match(s):
-                raise ValueError(f"expected YYYY-MM-DD, got {s!r}")
-            return Literal(s, datatype=XSD.date)
+        if target == XSD.dateTime:
+            # Accept "2019-10-01" or full ISO dateTime. Coerce plain dates to
+            # midnight UTC so HermiT can reason over them (xsd:date unsupported).
+            if "T" not in s:
+                if not _DATE_RE.match(s):
+                    raise ValueError(f"expected YYYY-MM-DD or ISO dateTime, got {s!r}")
+                s = f"{s}T00:00:00Z"
+            return Literal(s, datatype=XSD.dateTime)
     except (ValueError, TypeError) as exc:
         _log.warning(
             "skip triple — could not coerce %s=%r to %s: %s [%s]",

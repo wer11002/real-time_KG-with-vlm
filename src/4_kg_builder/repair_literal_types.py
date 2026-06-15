@@ -21,7 +21,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from rdflib import Graph, Literal, URIRef
+from rdflib import Graph, Literal, URIRef, XSD
 
 _SCHEMA_DIR = Path(__file__).resolve().parent
 if str(_SCHEMA_DIR) not in sys.path:
@@ -73,6 +73,22 @@ def repair(in_path: Path, out_path: Path, backup: bool) -> None:
         local = str(p).split("#")[-1]
         if local in PROP_TYPES:
             candidates.append((s, p, o, local))
+
+    # Explicit pass: any remaining xsd:date literals anywhere in the graph
+    # (e.g. from old pipeline runs before fix 045).
+    # HermiT doesn't support xsd:date — coerce to xsd:dateTime midnight UTC.
+    date_converted = 0
+    for s, p, o in list(g.triples((None, None, None))):
+        if isinstance(o, Literal) and o.datatype == XSD.date:
+            new_lit = Literal(f"{str(o)}T00:00:00Z", datatype=XSD.dateTime)
+            g.remove((s, p, o))
+            g.add((s, p, new_lit))
+            date_converted += 1
+
+    if date_converted:
+        print(f"\n=== RETYPED xsd:date → xsd:dateTime (HermiT workaround) ===")
+        print(f"  {date_converted} literal(s) converted")
+        print(f"  e.g. '2019-10-01'^^xsd:date → '2019-10-01T00:00:00Z'^^xsd:dateTime")
 
     print(f"\n  Candidates to inspect : {len(candidates):,}")
 

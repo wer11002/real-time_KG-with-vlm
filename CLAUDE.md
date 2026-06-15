@@ -145,6 +145,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 042 | T-Box: removed `owl:AllDisjointClasses` on 6 top-level classes (was triggering 130+ false HermiT contradictions after typed literals enabled range checking in fix 038); removed `rdfs:domain ekg:Match` from all DatatypeProperty and `hasPeriod` — kept on `hasHomeTeam`/`hasAwayTeam`/`officiatedBy`/`hasEvent` |
 | 043 | `check_consistency.py` — CPU-only HermiT runner via owlready2; prints CONSISTENT or lists classes inferred as `owl:Nothing`; use instead of opening Protégé for quick iteration |
 | 044 | `check_consistency.py`: convert TTL → temp RDF/XML before loading (owlready2 cannot parse Turtle); enumerate all inconsistent classes + sample individuals after failure; suppress owlready2 cyclic-subclass noise |
+| 045 | `xsd:date` → `xsd:dateTime` across T-Box, `PROP_TYPES`, and `typed_literal()`. HermiT only supports the OWL 2 datatype map (which excludes `xsd:date`). Plain dates like `"2019-10-01"` are coerced to `"2019-10-01T00:00:00Z"`. `repair_literal_types.py` now has an explicit pass to convert any remaining `xsd:date` literals in existing data |
 
 ---
 

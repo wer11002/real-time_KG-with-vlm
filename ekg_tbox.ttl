@@ -333,7 +333,7 @@ ekg:replacedBy        a owl:ObjectProperty ;
 
 # Match
 ekg:hasName              a owl:DatatypeProperty ; rdfs:range xsd:string .
-ekg:hasDate              a owl:DatatypeProperty ; rdfs:range xsd:date .
+ekg:hasDate              a owl:DatatypeProperty ; rdfs:range xsd:dateTime . # xsd:dateTime not xsd:date — HermiT only supports the OWL 2 datatype map (which excludes xsd:date)
 ekg:hasKickoffTime       a owl:DatatypeProperty ; rdfs:range xsd:time .
 ekg:hasAttendance        a owl:DatatypeProperty ; rdfs:range xsd:integer .
 ekg:hasFinalScoreHome    a owl:DatatypeProperty ; rdfs:range xsd:integer .
@@ -394,8 +394,8 @@ ekg:hasXCoord            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:r
 ekg:hasYCoord            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:decimal .
 ekg:isMatched            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:boolean .
 ekg:hasBallVisible       a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:boolean .
-ekg:validFrom            a owl:DatatypeProperty ; rdfs:range xsd:date .
-ekg:validUntil           a owl:DatatypeProperty ; rdfs:range xsd:date .
+ekg:validFrom            a owl:DatatypeProperty ; rdfs:range xsd:dateTime . # xsd:dateTime not xsd:date — HermiT only supports the OWL 2 datatype map (which excludes xsd:date)
+ekg:validUntil           a owl:DatatypeProperty ; rdfs:range xsd:dateTime . # xsd:dateTime not xsd:date — HermiT only supports the OWL 2 datatype map (which excludes xsd:date)
 
 # Shot-specific
 ekg:hasShotPower         a owl:DatatypeProperty ; rdfs:domain ekg:Shot ; rdfs:range xsd:decimal .

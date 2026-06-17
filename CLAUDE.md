@@ -165,10 +165,17 @@ python main.py --espn-every 3     # ESPN tick every 3 clips
 ### Running Event-Anchored Evaluation
 
 ```bash
-python src/commentator/convert_jaist_gt.py        # JAIST GT → JSON (per match)
-python src/commentator/event_anchored_eval.py     # anchored AI commentary
+# Step 1: Download JAIST SN-Short GT → data/sn_short/<league>/<match>/human_commentary.json
+python src/commentator/convert_jaist_gt.py
+
+# Step 2: Add 720p.mp4 for each match (SoccerNet licence — download separately)
+
+# Step 3: Run anchored evaluation (VLM + commentator per GT event)
+python src/commentator/event_anchored_eval.py --data-dir data/sn_short/
+
+# Step 4: Score against JAIST GT
 python src/commentator/evaluate_commentary.py \
-    --data-dir data/sn_long_subset/ \
+    --data-dir data/sn_short/ \
     --ai-file ai_commentary_anchored.json
 ```
 

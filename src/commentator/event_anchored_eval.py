@@ -300,9 +300,9 @@ def main():
     )
     ap.add_argument(
         "--data-dir",
-        default=str(BASE_DIR / "data" / "sn_long_subset"),
+        default=str(BASE_DIR / "data" / "sn_short"),
         help="Root folder containing per-match sub-folders "
-             "(default: data/sn_long_subset/)",
+             "(default: data/sn_short/)",
     )
     ap.add_argument(
         "--matches",

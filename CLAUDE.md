@@ -148,6 +148,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 045 | `xsd:date` → `xsd:dateTime` across T-Box, `PROP_TYPES`, and `typed_literal()`. HermiT only supports the OWL 2 datatype map (which excludes `xsd:date`). Plain dates like `"2019-10-01"` are coerced to `"2019-10-01T00:00:00Z"`. `repair_literal_types.py` now has an explicit pass to convert any remaining `xsd:date` literals in existing data |
 | 046 | Density-biased frame sampling (p=2.5): ~60% of frames in middle 33% of clip, sparse at edges. Replaces end-biased sampling (`t**0.7`). Pairs with event-anchored evaluation where the event is at clip center. `NUM_FRAMES` lowered 32 → 30 |
 | 047 | `commentator.py` event-anchored mode: JAIST SN-Long style 5-example SYSTEM_PROMPT (2-3 sentence target, no past-event references); `agent_commentate()` user prompt feeds only current event KG facts (player, team, action, body_part, pitch_zone, outcome, VLM description, match name); past-event tool schemas renamed `TOOLS_V1` and excluded from LLM call; standalone mode SPARQL query extended to fetch `body_part`, `pitchZone`, `outcome`; `SimpleNamespace` and events dict updated accordingly |
+| 048 | `event_anchored_eval.py` — new evaluation pipeline. Uses JAIST GT event times as clip anchors (60s centered on event), runs VLM, runs commentator in single-event mode, saves AI text paired with GT. Bypasses sliding-window detection for direct apples-to-apples comparison with JAIST SN-Long benchmark |
 
 ---
 
@@ -159,6 +160,16 @@ python main.py --test             # 5 clips, 224p, first match only
 python main.py --clips 20         # first 20 clips per match
 python main.py --match "Blackburn" # specific match (partial name ok)
 python main.py --espn-every 3     # ESPN tick every 3 clips
+```
+
+### Running Event-Anchored Evaluation
+
+```bash
+python src/commentator/convert_jaist_gt.py        # JAIST GT → JSON (per match)
+python src/commentator/event_anchored_eval.py     # anchored AI commentary
+python src/commentator/evaluate_commentary.py \
+    --data-dir data/sn_long_subset/ \
+    --ai-file ai_commentary_anchored.json
 ```
 
 ---
@@ -180,6 +191,8 @@ python main.py --espn-every 3     # ESPN tick every 3 clips
 | `data/commentator_output/evaluation_multitrack_aggregate.txt` | Aggregate across all matches |
 | `data/logs/` | Pipeline run logs |
 | `data/kg_output/ekg_pre_fix_035.ttl.bak` | Auto-backup written by `strip_reification.py` before in-place clean |
+| `data/<match>/anchored_clips/event_<i>.mp4` | 60s clip centered on GT event i |
+| `data/<match>/ai_commentary_anchored.json` | AI commentary per GT event (output of event_anchored_eval.py) |
 
 ---
 

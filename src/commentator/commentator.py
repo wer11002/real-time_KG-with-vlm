@@ -249,8 +249,10 @@ TOOL_FN = {
 }
 
 # ── OpenAI tool schemas ────────────────────────────────────────────────────
+# Retained as TOOLS_V1 for V2 ablation (history-aware mode).
+# Event-anchored mode (fix 047) passes no tools to the LLM.
 
-TOOLS = [
+TOOLS_V1 = [
     {
         "type": "function",
         "function": {
@@ -349,74 +351,51 @@ def _suggested_tools(action: str) -> str:
 # LLM AGENT
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """Always respond in English only. Never use any other language.
+SYSTEM_PROMPT = """You are a professional soccer match commentator writing
+for a live broadcast. Always respond in English only.
 
-You are a professional football commentator writing in the style of ESPN's
-match commentary. Your tone is factual, precise, and descriptive. Use
-specific football terminology: "right footed shot from the centre of the
-box", "left wing to the bottom left corner", "in space inside the penalty
-area", etc.
+Your job: describe ONE event from the football match in detailed, narrative
+commentary. Match the style of professional broadcast commentary: multiple
+sentences, named players, specific actions, outcomes, and crowd-context
+language.
 
 STYLE EXAMPLES (match this exact tone and structure):
 
-Shot:
-"Adam Armstrong (Blackburn Rovers) right footed shot from the centre of
-the box is saved in the bottom left corner. Assisted by Yuri Ribeiro with
-a cross. Armstrong has now had three attempts on goal in the first half,
-showing his attacking intent for the home side."
+Example 1 (Goal):
+"What a goal! Hector Bellerin plays it to Theo Walcott (Arsenal), who finds
+himself unmarked inside the box and slots a first-time shot past Thibaut
+Courtois. Arsenal extend their lead with a well-worked team goal."
 
-Goal:
-"Goal! Blackburn Rovers 1, Nottingham Forest 1. Joe Lolley (Nottingham
-Forest) left footed shot from outside the box to the bottom left corner.
-Assisted by Samba Sow following a corner. This is Lolley's second goal
-in three matches and brings Forest level just minutes after Armstrong
-opened the scoring."
+Example 2 (Cross / cleared):
+"Calum Chambers (Arsenal) crosses into the box from near the side line, but
+he doesn't connect as he wanted and it's cleared by the well-organized
+defence. The referee blows his whistle, Arsenal are awarded a corner kick."
 
-Foul:
-"Foul by Darragh Lenihan (Blackburn Rovers). Lenihan brings down Lewis
-Grabban near the centre circle. The referee plays advantage, but the ball
-runs out for a Nottingham Forest free kick deep in the Blackburn half.
-Lenihan was already on a yellow card for an earlier challenge."
+Example 3 (Shot / saved):
+"Dwight Gayle (Crystal Palace) launches a cross from the corner, but David
+Ospina is alert to thwart the effort. The cross was aimed at the far post,
+but the keeper stood firm and cleared the danger."
 
-Corner:
-"Corner, Nottingham Forest. Conceded by Christian Walton, who tips a
-powerful Joe Lolley shot over the bar. Forest have now earned four corners
-in the second half, mounting sustained pressure on the Blackburn defence
-following the equaliser."
+Example 4 (Goal / rebound):
+"Goal! Olivier Giroud (Arsenal) fires the rebound inside the right post
+after the ball breaks to him in the box. The score is 0:2."
 
-Free Kick:
-"Free kick, Blackburn Rovers. Bradley Dack stands over the ball 25 yards
-from goal in a central position. The Forest defence sets up a four-man
-wall as Dack lines up a left-footed shot. This is Blackburn's best
-opportunity to retake the lead in the second half."
-
-Substitution:
-"Substitution, Nottingham Forest. João Carvalho replaces Sammy Ameobi.
-Forest bring on fresh legs in midfield as they look to capitalise on
-their late equaliser and push for a winner. Carvalho has been in fine
-form recently, providing two assists in his last three appearances."
-
-Offside:
-"Offside, Blackburn Rovers. Lewis Holtby tries a through ball, but Sam
-Gallagher is caught offside in the Forest penalty area. Holtby's vision
-was excellent, but Gallagher's run was timed half a second too early.
-The Forest defence holds a high line all evening, and it pays off again."
+Example 5 (Foul / free kick):
+"Nacho Monreal (Arsenal) makes a reckless foul in order to win the ball
+from his opponent. Mark Clattenburg has a clear sight of it and blows his
+whistle. Crystal Palace have a free kick."
 
 RULES:
-1. Write exactly 50-70 words per commentary. Count words.
-2. Always include: player name (if known), specific action verb, location
-   on the pitch ("inside the box", "from midfield"), and one sentence of
-   historical context from the past events provided (e.g. "third attempt
-   of the half", "minutes after the corner").
-3. Use specific verbs: "fires", "strikes", "drills", "curls", "lashes",
-   "heads", "nods", "rises to head", "slides in", "carves out",
-   "threads through".
-4. Reference past events when available — this is critical.
-5. Avoid generic phrases like "good shot", "nice play", "great move".
-   Always be specific.
-6. Do not invent statistics, scores, or player histories not provided.
-   Only reference facts in the event data or past events.
-7. Never use emojis or non-English characters.
+1. Write 2-3 sentences in this exact style.
+2. Always name the player (from the KG facts provided). If player is
+   "unidentified", say "the player" or "the away/home team".
+3. Always include the team name in parentheses after the player.
+4. Describe the specific action (cross, shoot, header, tackle, foul, etc.)
+   using the body_part and pitch_zone information provided.
+5. Describe the outcome (saved, scored, blocked, won corner, etc.).
+6. Do NOT reference past events. This is a single-event commentary.
+7. Do NOT invent statistics, names, or facts not in the provided KG facts.
+8. Never use emojis or non-English characters.
 """
 
 
@@ -479,25 +458,28 @@ def agent_commentate(event, ttl_path: str, extra_hint: str = "") -> str:
     _handle_event() to ask for a regeneration when the first attempt
     came back too short.
     """
-    action     = getattr(event, "action",   "Unknown")
-    gametime   = getattr(event, "gametime", "?")
-    player     = getattr(event, "player",   None)
-    team_name  = getattr(event, "team", None)
-    event_uri, match_uri = _resolve_uris(event, ttl_path)
+    action      = getattr(event, "action",      "Unknown")
+    gametime    = getattr(event, "gametime",   "?")
+    player      = getattr(event, "player",     None)
+    team_name   = getattr(event, "team",       None)
+    match_name  = getattr(event, "match_name", "")
+    body_part   = getattr(event, "body_part",  None)
+    pitch_zone  = getattr(event, "pitch_zone", None)
+    outcome     = getattr(event, "outcome",    None)
     description = getattr(event, "description", "") or ""
 
-    suggested = _suggested_tools(action)
-
     user_content = (
-        f"Event: {action} at {gametime}\n"
-        f"Player: {player or 'unknown'}\n"
-        f"Team: {team_name or 'unknown'}\n"
-        f"VLM description: {description[:200] if description else 'none'}\n"
-        f"Event URI: {event_uri or 'unknown'}\n"
-        f"Match URI: {match_uri or 'unknown'}\n"
-        f"TTL path: {ttl_path}\n"
-        f"\nSuggested tools (you may call any): {suggested}\n"
-        f"Generate live commentary for this event."
+        f"Match: {match_name}\n\n"
+        f"Current event facts (from KG):\n"
+        f"- Player:          {player or 'unidentified'}\n"
+        f"- Team:            {team_name or 'unknown'}\n"
+        f"- Action:          {action}\n"
+        f"- Body part:       {body_part or 'unknown'}\n"
+        f"- Pitch zone:      {pitch_zone or 'unknown'}\n"
+        f"- Outcome:         {outcome or 'unknown'}\n"
+        f"- VLM description: {description[:200] if description else '(none)'}\n\n"
+        f"Write 2-3 sentences of broadcast-style commentary for this event,\n"
+        f"matching the example style. English only."
     )
     if extra_hint:
         user_content += f"\n\n{extra_hint}"
@@ -514,11 +496,9 @@ def agent_commentate(event, ttl_path: str, extra_hint: str = "") -> str:
                 json={
                     "model"            : LLM_MODEL,
                     "messages"         : messages,
-                    "tools"            : TOOLS,
-                    # Length + vocabulary tuning for ESPN-style output:
-                    #   max_tokens enough for ~70 words + structure
-                    #   frequency_penalty discourages phrase repetition
-                    #     across events, which lifts CIDEr and BLEU
+                    # Event-anchored mode (fix 047): no tools passed — LLM
+                    # describes only the current event's own KG properties.
+                    # Re-enable with "tools": TOOLS_V1 for history-aware ablation.
                     "temperature"      : 0.7,
                     "max_tokens"       : 200,
                     "top_p"            : 0.9,
@@ -578,9 +558,9 @@ def _handle_event(event, ttl_path: str):
     if _word_count(commentary) < MIN_WORDS:
         commentary = agent_commentate(
             event, ttl_path,
-            extra_hint=("The previous response was too short. Write 50-70 "
-                        "words with more contextual detail, following the "
-                        "ESPN style examples in the system prompt."),
+            extra_hint=("The previous response was too short. "
+                        "Write 2-3 sentences of broadcast-style commentary "
+                        "following the example style in the system prompt."),
         )
 
     print(f"\n[COMMENTARY] {gametime} {action}")
@@ -731,13 +711,17 @@ if __name__ == "__main__":
         q_events = """
         PREFIX ekg:  <http://soccerekg.org/ontology#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        SELECT ?e ?type ?hasTime ?minute ?period ?desc ?playerLabel ?teamLabel WHERE {
+        SELECT ?e ?type ?hasTime ?minute ?period ?desc ?playerLabel ?teamLabel
+               ?bodyPart ?pitchZone ?outcome WHERE {
             ?e ekg:inMatch <%s> ;
-               ekg:hasEventType ?type ;
-               ekg:hasTime      ?hasTime ;
-               ekg:hasMinute    ?minute ;
-               ekg:hasPeriodNumber    ?period .
+               ekg:hasEventType    ?type ;
+               ekg:hasTime         ?hasTime ;
+               ekg:hasMinute       ?minute ;
+               ekg:hasPeriodNumber ?period .
             OPTIONAL { ?e ekg:hasDescription ?desc }
+            OPTIONAL { ?e ekg:hasBodyPart    ?bodyPart }
+            OPTIONAL { ?e ekg:hasPitchZone   ?pitchZone }
+            OPTIONAL { ?e ekg:hasOutcome     ?outcome }
             OPTIONAL {
                 ?player ekg:performed ?e ;
                         rdfs:label    ?playerLabel .
@@ -758,9 +742,12 @@ if __name__ == "__main__":
                 "gametime"   : str(r.hasTime),
                 "minute"     : float(r.minute),
                 "period"     : int(r.period),
-                "description": str(r.desc) if r.desc else "",
+                "description": str(r.desc)        if r.desc        else "",
                 "player"     : str(r.playerLabel) if r.playerLabel else None,
                 "team"       : str(r.teamLabel)   if r.teamLabel   else None,
+                "body_part"  : str(r.bodyPart)    if r.bodyPart    else None,
+                "pitch_zone" : str(r.pitchZone)   if r.pitchZone   else None,
+                "outcome"    : str(r.outcome)     if r.outcome     else None,
             })
 
         if not events:
@@ -778,16 +765,20 @@ if __name__ == "__main__":
                     gametime    = ev["gametime"],
                     player      = ev["player"],
                     team        = ev["team"],
+                    match_name  = match_label,
                     description = ev["description"],
+                    body_part   = ev["body_part"],
+                    pitch_zone  = ev["pitch_zone"],
+                    outcome     = ev["outcome"],
                 )
                 text     = agent_commentate(event_obj, ttl_path)
                 if _word_count(text) < MIN_WORDS:
                     text = agent_commentate(
                         event_obj, ttl_path,
                         extra_hint=("The previous response was too short. "
-                                    "Write 50-70 words with more contextual "
-                                    "detail, following the ESPN style "
-                                    "examples in the system prompt."),
+                                    "Write 2-3 sentences of broadcast-style "
+                                    "commentary following the example style "
+                                    "in the system prompt."),
                     )
                 half_str = "1H" if ev["period"] == 1 else "2H"
                 print(

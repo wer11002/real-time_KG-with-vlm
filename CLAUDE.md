@@ -146,6 +146,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 043 | `check_consistency.py` — CPU-only HermiT runner via owlready2; prints CONSISTENT or lists classes inferred as `owl:Nothing`; use instead of opening Protégé for quick iteration |
 | 044 | `check_consistency.py`: convert TTL → temp RDF/XML before loading (owlready2 cannot parse Turtle); enumerate all inconsistent classes + sample individuals after failure; suppress owlready2 cyclic-subclass noise |
 | 045 | `xsd:date` → `xsd:dateTime` across T-Box, `PROP_TYPES`, and `typed_literal()`. HermiT only supports the OWL 2 datatype map (which excludes `xsd:date`). Plain dates like `"2019-10-01"` are coerced to `"2019-10-01T00:00:00Z"`. `repair_literal_types.py` now has an explicit pass to convert any remaining `xsd:date` literals in existing data |
+| 046 | Density-biased frame sampling (p=2.5): ~60% of frames in middle 33% of clip, sparse at edges. Replaces end-biased sampling (`t**0.7`). Pairs with event-anchored evaluation where the event is at clip center. `NUM_FRAMES` lowered 32 → 30 |
 
 ---
 

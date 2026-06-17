@@ -33,7 +33,7 @@ from typing import List, Dict, Optional
 
 # ── model config ───────────────────────────────────────────────────────────
 MODEL_NAME  = "Qwen/Qwen3-VL-30B-A3B-Instruct"
-NUM_FRAMES  = 32
+NUM_FRAMES  = 30
 
 VALID_ACTIONS = {"Shot", "Goal", "Foul", "Corner", "Free_Kick", "Substitution", "Offside"}
 
@@ -311,12 +311,19 @@ def extract_frames(clip_path: str, num_frames: int = NUM_FRAMES):
     duration_sec = total_frames / fps
 
     if total_frames >= num_frames:
-        # Bias sampling toward later frames — goal moments (ball crossing
-        # line, celebration) appear in the final seconds of a clip.
-        # t**0.7 maps uniform [0,1] so that ~60% of frames come from
-        # the last 40% of the clip. Other events are unaffected.
-        t = np.linspace(0, 1, num_frames) ** 0.7
-        indices = (t * (total_frames - 1)).astype(int).tolist()
+        # Density-biased sampling: dense at center, sparse at edges.
+        # The event we're describing happens in the middle of the clip
+        # (event-anchored mode), so concentrate VLM attention there.
+        # Maps t in [0,1] through power curve around 0.5:
+        #   u = 2*t - 1          (maps to [-1, 1])
+        #   u = sign(u)*|u|^2.5  (pushes toward edges → frames cluster center)
+        #   x = 0.5 + 0.5*u     (back to [0, 1])
+        # Effect with p=2.5: ~60% of frames in the middle 33% of the clip.
+        t = np.linspace(0, 1, num_frames)
+        u = 2 * t - 1
+        u = np.sign(u) * np.abs(u) ** 2.5
+        positions = 0.5 + 0.5 * u
+        indices = (positions * (total_frames - 1)).astype(int).tolist()
     else:
         indices = list(range(total_frames))
 

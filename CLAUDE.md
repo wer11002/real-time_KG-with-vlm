@@ -149,6 +149,7 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 046 | Density-biased frame sampling (p=2.5): ~60% of frames in middle 33% of clip, sparse at edges. Replaces end-biased sampling (`t**0.7`). Pairs with event-anchored evaluation where the event is at clip center. `NUM_FRAMES` lowered 32 → 30 |
 | 047 | `commentator.py` event-anchored mode: JAIST SN-Long style 5-example SYSTEM_PROMPT (2-3 sentence target, no past-event references); `agent_commentate()` user prompt feeds only current event KG facts (player, team, action, body_part, pitch_zone, outcome, VLM description, match name); past-event tool schemas renamed `TOOLS_V1` and excluded from LLM call; standalone mode SPARQL query extended to fetch `body_part`, `pitchZone`, `outcome`; `SimpleNamespace` and events dict updated accordingly |
 | 048 | `event_anchored_eval.py` — new evaluation pipeline. Uses JAIST GT event times as clip anchors (60s centered on event), runs VLM, runs commentator in single-event mode, saves AI text paired with GT. Bypasses sliding-window detection for direct apples-to-apples comparison with JAIST SN-Long benchmark |
+| 050 | Reverted `convert_jaist_gt.py` from GitHub-API download to pure local-filesystem reads. Source: `~/work/s2616011/Augmented_Soccer/Dataset/short/` (already cloned). Output: `data/sn_long/<season> - <match>/human_commentary.json` |
 
 ---
 

@@ -1,18 +1,20 @@
 """
 convert_jaist_gt.py — Convert local JAIST SN-Short GT to human_commentary.json
 
-Reads from local clone of Augmented_Soccer (no download needed):
+Reads from the locally-cloned Augmented_Soccer repo (no download):
   ~/work/s2616011/Augmented_Soccer/Dataset/short/<league_season>/<match>/
-      1_game.json   (1st half)
-      2_game.json   (2nd half)
+      1_game.json   (1st half SN-Short annotations)
+      2_game.json   (2nd half SN-Short annotations)
 
-Writes to our pipeline data directory:
+Writes only to match folders that already have a downloaded video:
   data/sn_long/<season> - <match_name>/human_commentary.json
+
+Run once after pulling new videos, or after re-cloning Augmented_Soccer.
 
 Usage:
     python src/commentator/convert_jaist_gt.py
-    python src/commentator/convert_jaist_gt.py --short-root /other/path
     python src/commentator/convert_jaist_gt.py --dry-run
+    python src/commentator/convert_jaist_gt.py --short-root /other/path/Dataset/short
 """
 
 import argparse
@@ -23,15 +25,14 @@ from pathlib import Path
 
 # ── paths ──────────────────────────────────────────────────────────────────
 
-BASE_DIR      = Path(__file__).resolve().parent.parent.parent
-JAIST_REPO    = Path.home() / "work" / "s2616011" / "Augmented_Soccer"
-SHORT_ROOT    = JAIST_REPO / "Dataset" / "short"
-PIPELINE_DATA = BASE_DIR / "data" / "sn_long"
+BASE_DIR     = Path(__file__).resolve().parent.parent.parent
+JAIST_REPO   = Path.home() / "work" / "s2616011" / "Augmented_Soccer"
+SHORT_ROOT   = JAIST_REPO / "Dataset" / "short"
+PIPELINE_OUT = BASE_DIR / "data" / "sn_long"
 
-HALF_OFFSET = 45   # half-2 gameTime minutes are 46-90; store as within-half (subtract 45)
+HALF_OFFSET = 45   # half-2 gameTime runs 46-90; store as within-half (subtract 45)
 
-# ── label map ─────────────────────────────────────────────────────────────
-# Maps JAIST "label" field values (if present) to our event_type strings.
+# ── label map (JAIST "label" field → our event_type) ──────────────────────
 
 LABEL_MAP = {
     "goal"        : "Goal",
@@ -46,7 +47,7 @@ LABEL_MAP = {
     "red card"    : "RedCard",
 }
 
-# ── helpers ───────────────────────────────────────────────────────────────
+# ── text heuristic fallback ────────────────────────────────────────────────
 
 _EVENT_PATTERNS = [
     (re.compile(r'\bgoal\b',              re.I), "Goal"),
@@ -60,115 +61,48 @@ _EVENT_PATTERNS = [
     (re.compile(r'\bred card\b',          re.I), "RedCard"),
 ]
 
-_PLAYER_TEAM_RE = re.compile(
-    r'\b([A-ZÀ-Ž][a-zà-ž]+(?:[\s\-][A-ZÀ-Ž][a-zà-ž]+)+)\s*\(([^)]{2,40})\)'
-)
-
-
-def _infer_event_type(text: str) -> str:
+def infer_event_type_from_text(text: str) -> str:
     for pat, label in _EVENT_PATTERNS:
         if pat.search(text):
             return label
     return "Unknown"
 
+# ── gameTime parsing ───────────────────────────────────────────────────────
 
-def _extract_player_team(text: str):
-    m = _PLAYER_TEAM_RE.search(text)
-    return (m.group(1).strip(), m.group(2).strip()) if m else (None, None)
-
-
-def _parse_gametime(gametime: str, half: int):
-    """Parse 'MM:SS' → (minute_within_half, second)."""
-    parts = str(gametime).strip().split(":")
+def parse_gametime(time_str: str):
+    """Parse 'MM:SS' → (minute, second) or (None, None) on failure."""
+    parts = str(time_str).strip().split(":")
     try:
-        abs_min = int(parts[0])
-        second  = int(parts[1]) if len(parts) > 1 else 0
+        return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
     except (ValueError, IndexError):
-        return 0, 0
-    within = max(0, abs_min - HALF_OFFSET) if half == 2 else abs_min
-    return within, second
-
-
-def _get_text(ann: dict) -> str:
-    """Return the best available commentary text from an annotation."""
-    for key in ("short-term", "description", "query"):
-        v = ann.get(key, "")
-        if v and v.strip():
-            return v.strip()
-    return ""
-
-
-def _get_event_type(ann: dict, text: str) -> str:
-    raw = ann.get("label", "")
-    if raw:
-        return LABEL_MAP.get(raw.lower().strip(), _infer_event_type(text))
-    return _infer_event_type(text)
-
-
-# ── conversion ────────────────────────────────────────────────────────────
-
-def convert_match(match_dir: Path, half: int) -> list:
-    game_file = match_dir / f"{half}_game.json"
-    if not game_file.exists():
-        return []
-
-    with open(game_file, encoding="utf-8") as f:
-        data = json.load(f)
-
-    # support both {"annotations": [...]} and bare list
-    annotations = data.get("annotations", data) if isinstance(data, dict) else data
-
-    entries = []
-    for ann in annotations:
-        gametime_raw = ann.get("gameTime") or ann.get("game_time", "0:00")
-        text         = _get_text(ann)
-        if not text:
-            continue
-
-        minute, second = _parse_gametime(gametime_raw, half)
-        player, team   = _extract_player_team(text)
-        event_type     = _get_event_type(ann, text)
-        half_label     = "1st" if half == 1 else "2nd"
-
-        entries.append({
-            "gametime"  : f"{half_label} {minute:02d}:{second:02d}",
-            "minute"    : minute,
-            "half"      : half,
-            "second"    : second,
-            "event_type": event_type,
-            "player"    : player,
-            "team"      : team,
-            "human_text": text,
-        })
-    return entries
-
+        return None, None
 
 # ── main ──────────────────────────────────────────────────────────────────
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Convert local JAIST SN-Short GT → human_commentary.json",
+        description="Convert local JAIST SN-Short GT to human_commentary.json.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
     ap.add_argument("--short-root", default=str(SHORT_ROOT),
                     help=f"Path to Dataset/short/ (default: {SHORT_ROOT})")
-    ap.add_argument("--out-dir",    default=str(PIPELINE_DATA),
-                    help=f"Output root (default: {PIPELINE_DATA})")
+    ap.add_argument("--out-dir",    default=str(PIPELINE_OUT),
+                    help=f"Pipeline data root (default: {PIPELINE_OUT})")
     ap.add_argument("--dry-run",    action="store_true",
                     help="Print what would be written without writing")
     args = ap.parse_args()
 
-    short_root = Path(args.short_root)
-    out_root   = Path(args.out_dir)
+    short_root   = Path(args.short_root)
+    pipeline_out = Path(args.out_dir)
 
     if not short_root.exists():
         print(f"ERROR: short root not found: {short_root}")
         raise SystemExit(1)
 
-    n_matches    = 0
-    n_events     = 0
-    type_counts  = defaultdict(int)
+    n_converted = 0
+    n_skipped   = 0
+    type_counts = defaultdict(int)
 
     for league_dir in sorted(short_root.iterdir()):
         if not league_dir.is_dir():
@@ -182,47 +116,86 @@ def main():
             if not match_dir.is_dir():
                 continue
 
-            match_name     = match_dir.name
-            out_folder     = f"{season} - {match_name}"
-            out_dir        = out_root / out_folder
-            out_path       = out_dir / "human_commentary.json"
+            match_name  = match_dir.name
+            out_folder  = pipeline_out / f"{season} - {match_name}"
 
-            # collect both halves
-            all_entries = []
-            for half in (1, 2):
-                all_entries.extend(convert_match(match_dir, half))
-
-            if not all_entries:
-                print(f"  [skip] no entries: {out_folder}")
+            # Only convert if the video folder already exists (video downloaded)
+            if not out_folder.exists():
+                n_skipped += 1
                 continue
 
-            all_entries.sort(key=lambda e: (e["half"], e["minute"], e["second"]))
+            merged_events = []
+            for half in (1, 2):
+                game_file = match_dir / f"{half}_game.json"
+                if not game_file.exists():
+                    continue
 
+                data        = json.load(open(game_file, encoding="utf-8"))
+                annotations = data if isinstance(data, list) else \
+                              data.get("annotations", [])
+
+                for entry in annotations:
+                    time_str = entry.get("gameTime") or entry.get("game_time")
+                    if not time_str:
+                        continue
+
+                    m, s = parse_gametime(time_str)
+                    if m is None:
+                        continue
+
+                    # within-half minute for second half
+                    within_min = max(0, m - HALF_OFFSET) if half == 2 else m
+
+                    text = (entry.get("short-term") or
+                            entry.get("description") or
+                            entry.get("query") or "")
+                    if not text:
+                        continue
+
+                    label      = (entry.get("label") or "").lower().strip()
+                    event_type = (LABEL_MAP.get(label) or
+                                  infer_event_type_from_text(text))
+
+                    merged_events.append({
+                        "minute"    : within_min,
+                        "half"      : half,
+                        "second"    : s or 0,
+                        "event_type": event_type,
+                        "player"    : "",
+                        "team"      : "",
+                        "human_text": text.strip(),
+                    })
+                    type_counts[event_type] += 1
+
+            if not merged_events:
+                continue
+
+            merged_events.sort(key=lambda e: (e["half"], e["minute"], e["second"]))
+
+            out_file = out_folder / "human_commentary.json"
             if args.dry_run:
-                print(f"  would write {len(all_entries):3d} events → {out_path}")
+                print(f"  would write {len(merged_events):3d} events → {out_file}")
             else:
-                out_dir.mkdir(parents=True, exist_ok=True)
-                with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump(all_entries, f, indent=2, ensure_ascii=False)
+                with open(out_file, "w", encoding="utf-8") as f:
+                    json.dump(merged_events, f, indent=2, ensure_ascii=False)
+                print(f"  {len(merged_events):3d} events → {out_file}")
 
-            for e in all_entries:
-                type_counts[e["event_type"]] += 1
-            n_events  += len(all_entries)
-            n_matches += 1
+            n_converted += 1
 
     # ── summary ───────────────────────────────────────────────────────────
-    print(f"\n{'═'*50}")
-    action = "Would write" if args.dry_run else "Written"
-    print(f"{action} {n_matches} matches, {n_events} total events")
-    print(f"Output root: {out_root}\n")
+    total_events = sum(type_counts.values())
+    action       = "Would write" if args.dry_run else "Written"
+    print(f"\n{'═'*52}")
+    print(f"Matches converted : {n_converted}")
+    print(f"Matches skipped   : {n_skipped}  (no video folder in {pipeline_out})")
+    print(f"Total events      : {total_events}\n")
     print("Event type distribution:")
     for etype, count in sorted(type_counts.items(), key=lambda x: -x[1]):
-        print(f"  {etype:<15} {count:>5}")
+        bar = "█" * (count * 30 // max(type_counts.values(), default=1))
+        print(f"  {etype:<15} {count:>5}  {bar}")
 
-    if not args.dry_run:
-        print("\nNext steps:")
-        print("  python src/commentator/event_anchored_eval.py \\")
-        print("      --data-dir data/sn_long/")
+    if not args.dry_run and n_converted:
+        print("\nNext:")
         print("  python src/commentator/evaluate_commentary.py \\")
         print("      --data-dir data/sn_long/ --ai-file ai_commentary_anchored.json")
 

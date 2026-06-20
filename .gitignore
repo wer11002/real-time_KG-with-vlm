@@ -5,4 +5,6 @@ models/*.pth
 logs/
 node_modules/
 __pycache__/
+*.pyc__pycache__/
 *.pyc
+evaluation_report.txt

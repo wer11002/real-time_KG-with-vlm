@@ -1,412 +1,771 @@
-@prefix owl:  <http://www.w3.org/2002/07/owl#> .
-@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ekg: <http://soccerekg.org/ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
-@prefix ekg:  <http://soccerekg.org/ontology#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-# ═══════════════════════════════════════════════════════════════════════
-# ONTOLOGY METADATA
-# ═══════════════════════════════════════════════════════════════════════
-
-<http://soccerekg.org/ontology>
-    a               owl:Ontology ;
-    rdfs:label      "Soccer Event Knowledge Graph T-Box" ;
-    rdfs:comment    "Football match knowledge graph schema for event detection and commentary generation." ;
+<http://soccerekg.org/ontology> a owl:Ontology ;
+    rdfs:label "Soccer Event Knowledge Graph T-Box" ;
+    rdfs:comment "Football match knowledge graph schema for event detection and commentary generation." ;
     owl:versionInfo "2.0" .
 
+ekg:AdvantagePlayed a owl:Class ;
+    rdfs:label "AdvantagePlayed" ;
+    rdfs:subClassOf ekg:RefereeDecision .
 
-# ═══════════════════════════════════════════════════════════════════════
-# TOP-LEVEL CLASSES
-# ═══════════════════════════════════════════════════════════════════════
+ekg:AerialDuel a owl:Class ;
+    rdfs:label "AerialDuel" ;
+    rdfs:subClassOf ekg:Duel .
 
-ekg:Match        a owl:Class ; rdfs:label "Match" ;
-                 rdfs:comment "A football match — the 90-minute container." .
+ekg:AttackingMidfielder a owl:Class ;
+    rdfs:label "AttackingMidfielder" ;
+    rdfs:subClassOf ekg:Midfielder .
 
-ekg:Period       a owl:Class ; rdfs:label "Period" ;
-                 rdfs:comment "A half or extra-time period within a match." .
+ekg:AttackingThird a owl:Class ;
+    rdfs:label "AttackingThird" ;
+    rdfs:subClassOf ekg:PitchZone .
 
-ekg:Team         a owl:Class ; rdfs:label "Team" ;
-                 rdfs:comment "A football club fielding players in a match." .
+ekg:BallRecovery a owl:Class ;
+    rdfs:label "BallRecovery" ;
+    rdfs:subClassOf ekg:Defensive .
 
-ekg:Person       a owl:Class ; rdfs:label "Person" ;
-                 rdfs:comment "Any human in the football context." .
+ekg:Block a owl:Class ;
+    rdfs:label "Block" ;
+    rdfs:subClassOf ekg:Defensive .
 
-ekg:PitchZone    a owl:Class ; rdfs:label "PitchZone" ;
-                 rdfs:comment "A spatial region on the football pitch." .
+ekg:BlockedShot a owl:Class ;
+    rdfs:label "BlockedShot" ;
+    rdfs:subClassOf ekg:Shot .
 
-ekg:Event        a owl:Class ; rdfs:label "Event" ;
-                 rdfs:comment "Anything that happens during a match." .
+ekg:Carry a owl:Class ;
+    rdfs:label "Carry" ;
+    rdfs:subClassOf ekg:Dribble .
 
-# Disjointness REMOVED (fix 042) — was triggering 130+ false contradictions
-# in HermiT when combined with property domain inferences after typed literals
-# were enabled (fix 038). Single-leaf-class typing is enforced by kg_builder.py
-# (fix 026, ACTION_TO_CLASS map), so disjointness is redundant here.
-# If property domains ever cause issues, prefer relaxing the domain over
-# reintroducing disjointness.
+ekg:Catch a owl:Class ;
+    rdfs:label "Catch" ;
+    rdfs:subClassOf ekg:GoalkeeperAction .
 
+ekg:CentralMidfielder a owl:Class ;
+    rdfs:label "CentralMidfielder" ;
+    rdfs:subClassOf ekg:Midfielder .
 
-# ═══════════════════════════════════════════════════════════════════════
-# MATCH SUB-CLASSES
-# ═══════════════════════════════════════════════════════════════════════
+ekg:CentreBack a owl:Class ;
+    rdfs:label "CentreBack" ;
+    rdfs:subClassOf ekg:Defender .
 
-ekg:LeagueMatch       a owl:Class ; rdfs:subClassOf ekg:Match ;
-                      rdfs:label "LeagueMatch" .
-ekg:CupMatch          a owl:Class ; rdfs:subClassOf ekg:Match ;
-                      rdfs:label "CupMatch" .
-ekg:PenaltyShootout   a owl:Class ; rdfs:subClassOf ekg:Match ;
-                      rdfs:label "PenaltyShootout" .
+ekg:CentreForward a owl:Class ;
+    rdfs:label "CentreForward" ;
+    rdfs:subClassOf ekg:Forward .
 
+ekg:Clearance a owl:Class ;
+    rdfs:label "Clearance" ;
+    rdfs:subClassOf ekg:Defensive .
 
-# ═══════════════════════════════════════════════════════════════════════
-# PERIOD SUB-CLASSES
-# ═══════════════════════════════════════════════════════════════════════
+ekg:Corner a owl:Class ;
+    rdfs:label "Corner" ;
+    rdfs:subClassOf ekg:SetPiece .
 
-ekg:FirstHalf         a owl:Class ; rdfs:subClassOf ekg:Period ;
-                      rdfs:label "FirstHalf" .
-ekg:SecondHalf        a owl:Class ; rdfs:subClassOf ekg:Period ;
-                      rdfs:label "SecondHalf" .
-ekg:ExtraFirstHalf    a owl:Class ; rdfs:subClassOf ekg:Period ;
-                      rdfs:label "ExtraFirstHalf" .
-ekg:ExtraSecondHalf   a owl:Class ; rdfs:subClassOf ekg:Period ;
-                      rdfs:label "ExtraSecondHalf" .
+ekg:Cross a owl:Class ;
+    rdfs:label "Cross" ;
+    rdfs:subClassOf ekg:Pass .
 
+ekg:CupMatch a owl:Class ;
+    rdfs:label "CupMatch" ;
+    rdfs:subClassOf ekg:Match .
 
-# ═══════════════════════════════════════════════════════════════════════
-# PERSON SUB-CLASSES
-# ═══════════════════════════════════════════════════════════════════════
+ekg:DangerousPlay a owl:Class ;
+    rdfs:label "DangerousPlay" ;
+    rdfs:subClassOf ekg:Foul .
 
-ekg:Player    a owl:Class ; rdfs:subClassOf ekg:Person ; rdfs:label "Player" .
-ekg:Manager   a owl:Class ; rdfs:subClassOf ekg:Person ; rdfs:label "Manager" .
-ekg:Referee   a owl:Class ; rdfs:subClassOf ekg:Person ; rdfs:label "Referee" .
-ekg:Owner     a owl:Class ; rdfs:subClassOf ekg:Person ; rdfs:label "Owner" .
+ekg:DefensiveMidfielder a owl:Class ;
+    rdfs:label "DefensiveMidfielder" ;
+    rdfs:subClassOf ekg:Midfielder .
 
-# Player position sub-classes
-ekg:Goalkeeper        a owl:Class ; rdfs:subClassOf ekg:Player ;
-                      rdfs:label "Goalkeeper" .
-ekg:Defender          a owl:Class ; rdfs:subClassOf ekg:Player ;
-                      rdfs:label "Defender" .
-ekg:Midfielder        a owl:Class ; rdfs:subClassOf ekg:Player ;
-                      rdfs:label "Midfielder" .
-ekg:Forward           a owl:Class ; rdfs:subClassOf ekg:Player ;
-                      rdfs:label "Forward" .
+ekg:DefensiveThird a owl:Class ;
+    rdfs:label "DefensiveThird" ;
+    rdfs:subClassOf ekg:PitchZone .
 
-# Defender sub-classes
-ekg:CentreBack        a owl:Class ; rdfs:subClassOf ekg:Defender ;
-                      rdfs:label "CentreBack" .
-ekg:LeftBack          a owl:Class ; rdfs:subClassOf ekg:Defender ;
-                      rdfs:label "LeftBack" .
-ekg:RightBack         a owl:Class ; rdfs:subClassOf ekg:Defender ;
-                      rdfs:label "RightBack" .
-ekg:LeftWingBack      a owl:Class ; rdfs:subClassOf ekg:Defender ;
-                      rdfs:label "LeftWingBack" .
-ekg:RightWingBack     a owl:Class ; rdfs:subClassOf ekg:Defender ;
-                      rdfs:label "RightWingBack" .
+ekg:Distribution a owl:Class ;
+    rdfs:label "Distribution" ;
+    rdfs:subClassOf ekg:GoalkeeperAction .
 
-# Midfielder sub-classes
-ekg:DefensiveMidfielder   a owl:Class ; rdfs:subClassOf ekg:Midfielder ;
-                          rdfs:label "DefensiveMidfielder" .
-ekg:CentralMidfielder     a owl:Class ; rdfs:subClassOf ekg:Midfielder ;
-                          rdfs:label "CentralMidfielder" .
-ekg:AttackingMidfielder   a owl:Class ; rdfs:subClassOf ekg:Midfielder ;
-                          rdfs:label "AttackingMidfielder" .
-ekg:LeftMidfielder        a owl:Class ; rdfs:subClassOf ekg:Midfielder ;
-                          rdfs:label "LeftMidfielder" .
-ekg:RightMidfielder       a owl:Class ; rdfs:subClassOf ekg:Midfielder ;
-                          rdfs:label "RightMidfielder" .
+ekg:ExtraFirstHalf a owl:Class ;
+    rdfs:label "ExtraFirstHalf" ;
+    rdfs:subClassOf ekg:Period .
 
-# Forward sub-classes
-ekg:CentreForward     a owl:Class ; rdfs:subClassOf ekg:Forward ;
-                      rdfs:label "CentreForward" .
-ekg:Striker           a owl:Class ; rdfs:subClassOf ekg:Forward ;
-                      rdfs:label "Striker" .
-ekg:LeftWinger        a owl:Class ; rdfs:subClassOf ekg:Forward ;
-                      rdfs:label "LeftWinger" .
-ekg:RightWinger       a owl:Class ; rdfs:subClassOf ekg:Forward ;
-                      rdfs:label "RightWinger" .
-ekg:SecondStriker     a owl:Class ; rdfs:subClassOf ekg:Forward ;
-                      rdfs:label "SecondStriker" .
+ekg:ExtraSecondHalf a owl:Class ;
+    rdfs:label "ExtraSecondHalf" ;
+    rdfs:subClassOf ekg:Period .
 
+ekg:FirstHalf a owl:Class ;
+    rdfs:label "FirstHalf" ;
+    rdfs:subClassOf ekg:Period .
 
-# ═══════════════════════════════════════════════════════════════════════
-# PITCH ZONE SUB-CLASSES
-# ═══════════════════════════════════════════════════════════════════════
+ekg:FreeKick a owl:Class ;
+    rdfs:label "FreeKick" ;
+    rdfs:subClassOf ekg:SetPiece .
 
-ekg:DefensiveThird    a owl:Class ; rdfs:subClassOf ekg:PitchZone ;
-                      rdfs:label "DefensiveThird" .
-ekg:MiddleThird       a owl:Class ; rdfs:subClassOf ekg:PitchZone ;
-                      rdfs:label "MiddleThird" .
-ekg:AttackingThird    a owl:Class ; rdfs:subClassOf ekg:PitchZone ;
-                      rdfs:label "AttackingThird" .
-ekg:PenaltyBox        a owl:Class ; rdfs:subClassOf ekg:PitchZone ;
-                      rdfs:label "PenaltyBox" .
-ekg:SixYardBox        a owl:Class ; rdfs:subClassOf ekg:PitchZone ;
-                      rdfs:label "SixYardBox" .
-ekg:Wing              a owl:Class ; rdfs:subClassOf ekg:PitchZone ;
-                      rdfs:label "Wing" .
+ekg:FreeKickGoal a owl:Class ;
+    rdfs:label "FreeKickGoal" ;
+    rdfs:subClassOf ekg:Goal .
 
+ekg:FullTimeWhistle a owl:Class ;
+    rdfs:label "FullTimeWhistle" ;
+    rdfs:subClassOf ekg:MatchManagement .
 
-# ═══════════════════════════════════════════════════════════════════════
-# EVENT TREE — PlayerAction
-# ═══════════════════════════════════════════════════════════════════
+ekg:GoalKick a owl:Class ;
+    rdfs:label "GoalKick" ;
+    rdfs:subClassOf ekg:SetPiece .
 
-ekg:PlayerAction      a owl:Class ; rdfs:subClassOf ekg:Event ;
-                      rdfs:label "PlayerAction" .
+ekg:GroundDuel a owl:Class ;
+    rdfs:label "GroundDuel" ;
+    rdfs:subClassOf ekg:Duel .
 
-# Pass family
-ekg:Pass              a owl:Class ; rdfs:subClassOf ekg:PlayerAction ;
-                      rdfs:label "Pass" .
-ekg:ShortPass         a owl:Class ; rdfs:subClassOf ekg:Pass ; rdfs:label "ShortPass" .
-ekg:LongPass          a owl:Class ; rdfs:subClassOf ekg:Pass ; rdfs:label "LongPass" .
-ekg:ThroughBall       a owl:Class ; rdfs:subClassOf ekg:Pass ; rdfs:label "ThroughBall" .
-ekg:KeyPass           a owl:Class ; rdfs:subClassOf ekg:Pass ; rdfs:label "KeyPass" .
-ekg:Cross             a owl:Class ; rdfs:subClassOf ekg:Pass ; rdfs:label "Cross" .
+ekg:HalfTimeWhistle a owl:Class ;
+    rdfs:label "HalfTimeWhistle" ;
+    rdfs:subClassOf ekg:MatchManagement .
 
-# Shot family
-ekg:Shot              a owl:Class ; rdfs:subClassOf ekg:PlayerAction ; rdfs:label "Shot" .
-ekg:OnTargetShot      a owl:Class ; rdfs:subClassOf ekg:Shot ; rdfs:label "OnTargetShot" .
-ekg:OffTargetShot     a owl:Class ; rdfs:subClassOf ekg:Shot ; rdfs:label "OffTargetShot" .
-ekg:BlockedShot       a owl:Class ; rdfs:subClassOf ekg:Shot ; rdfs:label "BlockedShot" .
-ekg:Header            a owl:Class ; rdfs:subClassOf ekg:Shot ; rdfs:label "Header" .
+ekg:Handball a owl:Class ;
+    rdfs:label "Handball" ;
+    rdfs:subClassOf ekg:Foul .
 
-# Goal family
-ekg:Goal              a owl:Class ; rdfs:subClassOf ekg:PlayerAction ; rdfs:label "Goal" .
-ekg:OpenPlayGoal      a owl:Class ; rdfs:subClassOf ekg:Goal ; rdfs:label "OpenPlayGoal" .
-ekg:PenaltyGoal       a owl:Class ; rdfs:subClassOf ekg:Goal ; rdfs:label "PenaltyGoal" .
-ekg:FreeKickGoal      a owl:Class ; rdfs:subClassOf ekg:Goal ; rdfs:label "FreeKickGoal" .
-ekg:HeaderGoal        a owl:Class ; rdfs:subClassOf ekg:Goal ; rdfs:label "HeaderGoal" .
-ekg:OwnGoal           a owl:Class ; rdfs:subClassOf ekg:Goal ; rdfs:label "OwnGoal" .
+ekg:Header a owl:Class ;
+    rdfs:label "Header" ;
+    rdfs:subClassOf ekg:Shot .
 
-# Defensive family
-ekg:Defensive         a owl:Class ; rdfs:subClassOf ekg:PlayerAction ; rdfs:label "Defensive" .
-ekg:Tackle            a owl:Class ; rdfs:subClassOf ekg:Defensive ; rdfs:label "Tackle" .
-ekg:Interception      a owl:Class ; rdfs:subClassOf ekg:Defensive ; rdfs:label "Interception" .
-ekg:Block             a owl:Class ; rdfs:subClassOf ekg:Defensive ; rdfs:label "Block" .
-ekg:Clearance         a owl:Class ; rdfs:subClassOf ekg:Defensive ; rdfs:label "Clearance" .
-ekg:BallRecovery      a owl:Class ; rdfs:subClassOf ekg:Defensive ; rdfs:label "BallRecovery" .
+ekg:HeaderGoal a owl:Class ;
+    rdfs:label "HeaderGoal" ;
+    rdfs:subClassOf ekg:Goal .
 
-# Dribble family
-ekg:Dribble           a owl:Class ; rdfs:subClassOf ekg:PlayerAction ; rdfs:label "Dribble" .
-ekg:Carry             a owl:Class ; rdfs:subClassOf ekg:Dribble ; rdfs:label "Carry" .
-ekg:TakeOn            a owl:Class ; rdfs:subClassOf ekg:Dribble ; rdfs:label "TakeOn" .
+ekg:Hold a owl:Class ;
+    rdfs:label "Hold" ;
+    rdfs:subClassOf ekg:Foul .
 
-# Duel family
-ekg:Duel              a owl:Class ; rdfs:subClassOf ekg:PlayerAction ; rdfs:label "Duel" .
-ekg:AerialDuel        a owl:Class ; rdfs:subClassOf ekg:Duel ; rdfs:label "AerialDuel" .
-ekg:GroundDuel        a owl:Class ; rdfs:subClassOf ekg:Duel ; rdfs:label "GroundDuel" .
+ekg:Injury a owl:Class ;
+    rdfs:label "Injury" ;
+    rdfs:subClassOf ekg:MatchManagement .
 
-# Goalkeeper actions
-ekg:GoalkeeperAction  a owl:Class ; rdfs:subClassOf ekg:PlayerAction ;
-                      rdfs:label "GoalkeeperAction" .
-ekg:Save              a owl:Class ; rdfs:subClassOf ekg:GoalkeeperAction ; rdfs:label "Save" .
-ekg:Punch             a owl:Class ; rdfs:subClassOf ekg:GoalkeeperAction ; rdfs:label "Punch" .
-ekg:Catch             a owl:Class ; rdfs:subClassOf ekg:GoalkeeperAction ; rdfs:label "Catch" .
-ekg:Distribution      a owl:Class ; rdfs:subClassOf ekg:GoalkeeperAction ; rdfs:label "Distribution" .
+ekg:Interception a owl:Class ;
+    rdfs:label "Interception" ;
+    rdfs:subClassOf ekg:Defensive .
 
-# Foul family
-ekg:Foul              a owl:Class ; rdfs:subClassOf ekg:PlayerAction ; rdfs:label "Foul" .
-ekg:Handball          a owl:Class ; rdfs:subClassOf ekg:Foul ; rdfs:label "Handball" .
-ekg:Trip              a owl:Class ; rdfs:subClassOf ekg:Foul ; rdfs:label "Trip" .
-ekg:Push              a owl:Class ; rdfs:subClassOf ekg:Foul ; rdfs:label "Push" .
-ekg:Hold              a owl:Class ; rdfs:subClassOf ekg:Foul ; rdfs:label "Hold" .
-ekg:SlideTackle       a owl:Class ; rdfs:subClassOf ekg:Foul ; rdfs:label "SlideTackle" .
-ekg:DangerousPlay     a owl:Class ; rdfs:subClassOf ekg:Foul ; rdfs:label "DangerousPlay" .
+ekg:KeyPass a owl:Class ;
+    rdfs:label "KeyPass" ;
+    rdfs:subClassOf ekg:Pass .
 
+ekg:Kickoff a owl:Class ;
+    rdfs:label "Kickoff" ;
+    rdfs:subClassOf ekg:SetPiece .
 
-# ═══════════════════════════════════════════════════════════════════════
-# EVENT TREE — SetPiece
-# ═══════════════════════════════════════════════════════════════════
+ekg:KickoffEvent a owl:Class ;
+    rdfs:label "KickoffEvent" ;
+    rdfs:subClassOf ekg:MatchManagement .
 
-ekg:SetPiece          a owl:Class ; rdfs:subClassOf ekg:Event ; rdfs:label "SetPiece" .
-ekg:Corner            a owl:Class ; rdfs:subClassOf ekg:SetPiece ; rdfs:label "Corner" .
-ekg:FreeKick          a owl:Class ; rdfs:subClassOf ekg:SetPiece ; rdfs:label "FreeKick" .
-ekg:Penalty           a owl:Class ; rdfs:subClassOf ekg:SetPiece ; rdfs:label "Penalty" .
-ekg:ThrowIn           a owl:Class ; rdfs:subClassOf ekg:SetPiece ; rdfs:label "ThrowIn" .
-ekg:GoalKick          a owl:Class ; rdfs:subClassOf ekg:SetPiece ; rdfs:label "GoalKick" .
-ekg:Kickoff           a owl:Class ; rdfs:subClassOf ekg:SetPiece ; rdfs:label "Kickoff" .
+ekg:LeagueMatch a owl:Class ;
+    rdfs:label "LeagueMatch" ;
+    rdfs:subClassOf ekg:Match .
 
+ekg:LeftBack a owl:Class ;
+    rdfs:label "LeftBack" ;
+    rdfs:subClassOf ekg:Defender .
 
-# ═══════════════════════════════════════════════════════════════════════
-# EVENT TREE — RefereeDecision
-# ═══════════════════════════════════════════════════════════════════
+ekg:LeftMidfielder a owl:Class ;
+    rdfs:label "LeftMidfielder" ;
+    rdfs:subClassOf ekg:Midfielder .
 
-ekg:RefereeDecision   a owl:Class ; rdfs:subClassOf ekg:Event ;
-                      rdfs:label "RefereeDecision" .
-ekg:Card              a owl:Class ; rdfs:subClassOf ekg:RefereeDecision ; rdfs:label "Card" .
-ekg:YellowCard        a owl:Class ; rdfs:subClassOf ekg:Card ; rdfs:label "YellowCard" .
-ekg:RedCard           a owl:Class ; rdfs:subClassOf ekg:Card ; rdfs:label "RedCard" .
-ekg:SecondYellow      a owl:Class ; rdfs:subClassOf ekg:Card ; rdfs:label "SecondYellow" .
-ekg:OffsideCalled     a owl:Class ; rdfs:subClassOf ekg:RefereeDecision ;
-                      rdfs:label "OffsideCalled" .
-ekg:PenaltyAwarded    a owl:Class ; rdfs:subClassOf ekg:RefereeDecision ;
-                      rdfs:label "PenaltyAwarded" .
-ekg:AdvantagePlayed   a owl:Class ; rdfs:subClassOf ekg:RefereeDecision ;
-                      rdfs:label "AdvantagePlayed" .
-ekg:VARDecision       a owl:Class ; rdfs:subClassOf ekg:RefereeDecision ;
-                      rdfs:label "VARDecision" .
+ekg:LeftWingBack a owl:Class ;
+    rdfs:label "LeftWingBack" ;
+    rdfs:subClassOf ekg:Defender .
 
+ekg:LeftWinger a owl:Class ;
+    rdfs:label "LeftWinger" ;
+    rdfs:subClassOf ekg:Forward .
 
-# ═══════════════════════════════════════════════════════════════════════
-# EVENT TREE — MatchManagement
-# ═══════════════════════════════════════════════════════════════════
+ekg:LongPass a owl:Class ;
+    rdfs:label "LongPass" ;
+    rdfs:subClassOf ekg:Pass .
 
-ekg:MatchManagement   a owl:Class ; rdfs:subClassOf ekg:Event ;
-                      rdfs:label "MatchManagement" .
-ekg:Substitution      a owl:Class ; rdfs:subClassOf ekg:MatchManagement ;
-                      rdfs:label "Substitution" .
-ekg:Injury            a owl:Class ; rdfs:subClassOf ekg:MatchManagement ;
-                      rdfs:label "Injury" .
-ekg:KickoffEvent      a owl:Class ; rdfs:subClassOf ekg:MatchManagement ;
-                      rdfs:label "KickoffEvent" .
-ekg:HalfTimeWhistle   a owl:Class ; rdfs:subClassOf ekg:MatchManagement ;
-                      rdfs:label "HalfTimeWhistle" .
-ekg:FullTimeWhistle   a owl:Class ; rdfs:subClassOf ekg:MatchManagement ;
-                      rdfs:label "FullTimeWhistle" .
+ekg:MiddleThird a owl:Class ;
+    rdfs:label "MiddleThird" ;
+    rdfs:subClassOf ekg:PitchZone .
 
+ekg:OffTargetShot a owl:Class ;
+    rdfs:label "OffTargetShot" ;
+    rdfs:subClassOf ekg:Shot .
 
-# ═══════════════════════════════════════════════════════════════════════
-# OBJECT PROPERTIES (relationships between classes)
-# ═══════════════════════════════════════════════════════════════════════
+ekg:OffsideCalled a owl:Class ;
+    rdfs:label "OffsideCalled" ;
+    rdfs:subClassOf ekg:RefereeDecision .
 
-ekg:hasHomeTeam       a owl:ObjectProperty ;
-    rdfs:label "hasHomeTeam" ; rdfs:domain ekg:Match ; rdfs:range ekg:Team .
-ekg:hasAwayTeam       a owl:ObjectProperty ;
-    rdfs:label "hasAwayTeam" ; rdfs:domain ekg:Match ; rdfs:range ekg:Team .
-ekg:officiatedBy      a owl:ObjectProperty ;
-    rdfs:label "officiatedBy" ; rdfs:domain ekg:Match ; rdfs:range ekg:Referee .
-ekg:hasEvent          a owl:ObjectProperty ;
-    rdfs:label "hasEvent" ; rdfs:domain ekg:Match ; rdfs:range ekg:Event .
-ekg:hasPeriod         a owl:ObjectProperty ;
-    rdfs:label "hasPeriod" ; rdfs:range ekg:Period .
+ekg:OnTargetShot a owl:Class ;
+    rdfs:label "OnTargetShot" ;
+    rdfs:subClassOf ekg:Shot .
 
-ekg:ofMatch           a owl:ObjectProperty ;
-    rdfs:label "ofMatch" ; owl:inverseOf ekg:hasPeriod ;
-    rdfs:domain ekg:Period ; rdfs:range ekg:Match .
+ekg:OpenPlayGoal a owl:Class ;
+    rdfs:label "OpenPlayGoal" ;
+    rdfs:subClassOf ekg:Goal .
 
-ekg:hasPlayer         a owl:ObjectProperty ;
-    rdfs:label "hasPlayer" ; rdfs:domain ekg:Team ; rdfs:range ekg:Player .
-ekg:managedBy         a owl:ObjectProperty ;
-    rdfs:label "managedBy" ; rdfs:domain ekg:Team ; rdfs:range ekg:Manager .
+ekg:OwnGoal a owl:Class ;
+    rdfs:label "OwnGoal" ;
+    rdfs:subClassOf ekg:Goal .
 
-ekg:playsFor          a owl:ObjectProperty ;
-    rdfs:label "playsFor" ; owl:inverseOf ekg:hasPlayer ;
-    rdfs:domain ekg:Player ; rdfs:range ekg:Team .
-ekg:participatedIn    a owl:ObjectProperty ;
-    rdfs:label "participatedIn" ; rdfs:domain ekg:Player ; rdfs:range ekg:Match .
-ekg:performed         a owl:ObjectProperty ;
-    rdfs:label "performed" ; rdfs:domain ekg:Player ; rdfs:range ekg:Event .
+ekg:Owner a owl:Class ;
+    rdfs:label "Owner" ;
+    rdfs:subClassOf ekg:Person .
 
-ekg:isPerformedBy     a owl:ObjectProperty ;
-    rdfs:label "isPerformedBy" ; owl:inverseOf ekg:performed ;
-    rdfs:domain ekg:Event ; rdfs:range ekg:Player .
-ekg:inMatch           a owl:ObjectProperty ;
-    rdfs:label "inMatch" ; rdfs:domain ekg:Event ; rdfs:range ekg:Match .
-ekg:inPeriod          a owl:ObjectProperty ;
-    rdfs:label "inPeriod" ; rdfs:domain ekg:Event ; rdfs:range ekg:Period .
-ekg:involvedTeam      a owl:ObjectProperty ;
-    rdfs:label "involvedTeam" ; rdfs:domain ekg:Event ; rdfs:range ekg:Team .
-ekg:inZone            a owl:ObjectProperty ;
-    rdfs:label "inZone" ; rdfs:domain ekg:Event ; rdfs:range ekg:PitchZone .
-ekg:precededBy        a owl:ObjectProperty ;
-    rdfs:label "precededBy" ; rdfs:domain ekg:Event ; rdfs:range ekg:Event .
-ekg:precedes          a owl:ObjectProperty ;
-    rdfs:label "precedes" ; owl:inverseOf ekg:precededBy ;
-    rdfs:domain ekg:Event ; rdfs:range ekg:Event .
-ekg:triggered         a owl:ObjectProperty ;
-    rdfs:label "triggered" ; rdfs:domain ekg:Event ; rdfs:range ekg:Event .
-ekg:assistedBy        a owl:ObjectProperty ;
-    rdfs:label "assistedBy" ; rdfs:domain ekg:Goal ; rdfs:range ekg:Player .
-ekg:fouledPlayer      a owl:ObjectProperty ;
-    rdfs:label "fouledPlayer" ; rdfs:domain ekg:Foul ; rdfs:range ekg:Player .
-ekg:passedTo          a owl:ObjectProperty ;
-    rdfs:label "passedTo" ; rdfs:domain ekg:Pass ; rdfs:range ekg:Player .
-ekg:savedBy           a owl:ObjectProperty ;
-    rdfs:label "savedBy" ; rdfs:domain ekg:Shot ; rdfs:range ekg:Goalkeeper .
-ekg:replaces          a owl:ObjectProperty ;
-    rdfs:label "replaces" ; rdfs:domain ekg:Substitution ; rdfs:range ekg:Player .
-ekg:replacedBy        a owl:ObjectProperty ;
-    rdfs:label "replacedBy" ; rdfs:domain ekg:Substitution ; rdfs:range ekg:Player .
+ekg:Penalty a owl:Class ;
+    rdfs:label "Penalty" ;
+    rdfs:subClassOf ekg:SetPiece .
 
+ekg:PenaltyAwarded a owl:Class ;
+    rdfs:label "PenaltyAwarded" ;
+    rdfs:subClassOf ekg:RefereeDecision .
 
-# ═══════════════════════════════════════════════════════════════════════
-# DATA PROPERTIES (values on classes)
-# ═══════════════════════════════════════════════════════════════════════
+ekg:PenaltyBox a owl:Class ;
+    rdfs:label "PenaltyBox" ;
+    rdfs:subClassOf ekg:PitchZone .
 
-# Match
-ekg:hasName              a owl:DatatypeProperty ; rdfs:range xsd:string .
-ekg:hasDate              a owl:DatatypeProperty ; rdfs:range xsd:dateTime . # xsd:dateTime not xsd:date — HermiT only supports the OWL 2 datatype map (which excludes xsd:date)
-ekg:hasKickoffTime       a owl:DatatypeProperty ; rdfs:range xsd:time .
-ekg:hasAttendance        a owl:DatatypeProperty ; rdfs:range xsd:integer .
-ekg:hasFinalScoreHome    a owl:DatatypeProperty ; rdfs:range xsd:integer .
-ekg:hasFinalScoreAway    a owl:DatatypeProperty ; rdfs:range xsd:integer .
-ekg:hasHalfTimeScoreHome a owl:DatatypeProperty ; rdfs:range xsd:integer .
-ekg:hasHalfTimeScoreAway a owl:DatatypeProperty ; rdfs:range xsd:integer .
-ekg:hasPossessionHome    a owl:DatatypeProperty ; rdfs:range xsd:decimal .
-ekg:hasPossessionAway    a owl:DatatypeProperty ; rdfs:range xsd:decimal .
-ekg:hasWeather           a owl:DatatypeProperty ; rdfs:range xsd:string .
-ekg:hasLeague            a owl:DatatypeProperty ; rdfs:range xsd:string .
-ekg:hasSeason            a owl:DatatypeProperty ; rdfs:range xsd:string .
-ekg:hasVenue             a owl:DatatypeProperty ; rdfs:range xsd:string .
+ekg:PenaltyGoal a owl:Class ;
+    rdfs:label "PenaltyGoal" ;
+    rdfs:subClassOf ekg:Goal .
 
-# Period
-ekg:hasPeriodNumber      a owl:DatatypeProperty ; rdfs:range xsd:integer .
-ekg:hasStartTime         a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:integer .
-ekg:hasEndTime           a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:integer .
-ekg:hasAddedTime         a owl:DatatypeProperty ; rdfs:domain ekg:Period ; rdfs:range xsd:integer .
+ekg:PenaltyShootout a owl:Class ;
+    rdfs:label "PenaltyShootout" ;
+    rdfs:subClassOf ekg:Match .
 
-# Team
-ekg:hasShortName         a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
-ekg:hasFoundedYear       a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:integer .
-ekg:hasPrimaryColor      a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
-ekg:hasSecondaryColor    a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
-ekg:hasJerseyColor       a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
-ekg:hasShortsColor       a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
-ekg:hasSocksColor        a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
-ekg:hasKitPattern        a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
-ekg:hasFormation         a owl:DatatypeProperty ; rdfs:domain ekg:Team ; rdfs:range xsd:string .
+ekg:Punch a owl:Class ;
+    rdfs:label "Punch" ;
+    rdfs:subClassOf ekg:GoalkeeperAction .
 
-# Player
-ekg:hasJerseyNumber      a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:integer .
-ekg:hasAge               a owl:DatatypeProperty ; rdfs:domain ekg:Person ; rdfs:range xsd:integer .
-ekg:hasNationality       a owl:DatatypeProperty ; rdfs:domain ekg:Person ; rdfs:range xsd:string .
-ekg:hasHeight            a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:decimal .
-ekg:hasWeight            a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:decimal .
-ekg:hasPreferredFoot     a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:string .
-ekg:hasMarketValue       a owl:DatatypeProperty ; rdfs:domain ekg:Player ; rdfs:range xsd:decimal .
+ekg:Push a owl:Class ;
+    rdfs:label "Push" ;
+    rdfs:subClassOf ekg:Foul .
 
-# Event (general)
-ekg:hasTime              a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasMinute            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:decimal .
-ekg:hasSecond            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:integer .
-ekg:hasDescription       a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasFullText          a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasEventType         a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasOutcome           a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasBodyPart          a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasPitchZone         a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasFoulType          a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasTeamSide          a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:detectedJersey       a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:integer .
-ekg:hasDetectedColor        a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasDetectedShortsColor  a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasDetectedSocksColor   a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasDetectedKitPattern   a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:string .
-ekg:hasXCoord            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:decimal .
-ekg:hasYCoord            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:decimal .
-ekg:isMatched            a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:boolean .
-ekg:hasBallVisible       a owl:DatatypeProperty ; rdfs:domain ekg:Event ; rdfs:range xsd:boolean .
-ekg:validFrom            a owl:DatatypeProperty ; rdfs:range xsd:dateTime . # xsd:dateTime not xsd:date — HermiT only supports the OWL 2 datatype map (which excludes xsd:date)
-ekg:validUntil           a owl:DatatypeProperty ; rdfs:range xsd:dateTime . # xsd:dateTime not xsd:date — HermiT only supports the OWL 2 datatype map (which excludes xsd:date)
+ekg:RedCard a owl:Class ;
+    rdfs:label "RedCard" ;
+    rdfs:subClassOf ekg:Card .
 
-# Shot-specific
-ekg:hasShotPower         a owl:DatatypeProperty ; rdfs:domain ekg:Shot ; rdfs:range xsd:decimal .
-ekg:hasShotAngle         a owl:DatatypeProperty ; rdfs:domain ekg:Shot ; rdfs:range xsd:decimal .
-ekg:hasExpectedGoals     a owl:DatatypeProperty ; rdfs:domain ekg:Shot ; rdfs:range xsd:decimal .
-ekg:hasOnTarget          a owl:DatatypeProperty ; rdfs:domain ekg:Shot ; rdfs:range xsd:boolean .
+ekg:RightBack a owl:Class ;
+    rdfs:label "RightBack" ;
+    rdfs:subClassOf ekg:Defender .
 
-# Pass-specific
-ekg:hasPassDistance      a owl:DatatypeProperty ; rdfs:domain ekg:Pass ; rdfs:range xsd:decimal .
-ekg:hasPassDirection     a owl:DatatypeProperty ; rdfs:domain ekg:Pass ; rdfs:range xsd:string .
-ekg:hasPassSuccess       a owl:DatatypeProperty ; rdfs:domain ekg:Pass ; rdfs:range xsd:boolean .
+ekg:RightMidfielder a owl:Class ;
+    rdfs:label "RightMidfielder" ;
+    rdfs:subClassOf ekg:Midfielder .
 
-# Card-specific
-ekg:hasCardReason        a owl:DatatypeProperty ; rdfs:domain ekg:Card ; rdfs:range xsd:string .
+ekg:RightWingBack a owl:Class ;
+    rdfs:label "RightWingBack" ;
+    rdfs:subClassOf ekg:Defender .
+
+ekg:RightWinger a owl:Class ;
+    rdfs:label "RightWinger" ;
+    rdfs:subClassOf ekg:Forward .
+
+ekg:Save a owl:Class ;
+    rdfs:label "Save" ;
+    rdfs:subClassOf ekg:GoalkeeperAction .
+
+ekg:SecondHalf a owl:Class ;
+    rdfs:label "SecondHalf" ;
+    rdfs:subClassOf ekg:Period .
+
+ekg:SecondStriker a owl:Class ;
+    rdfs:label "SecondStriker" ;
+    rdfs:subClassOf ekg:Forward .
+
+ekg:SecondYellow a owl:Class ;
+    rdfs:label "SecondYellow" ;
+    rdfs:subClassOf ekg:Card .
+
+ekg:ShortPass a owl:Class ;
+    rdfs:label "ShortPass" ;
+    rdfs:subClassOf ekg:Pass .
+
+ekg:SixYardBox a owl:Class ;
+    rdfs:label "SixYardBox" ;
+    rdfs:subClassOf ekg:PitchZone .
+
+ekg:SlideTackle a owl:Class ;
+    rdfs:label "SlideTackle" ;
+    rdfs:subClassOf ekg:Foul .
+
+ekg:Striker a owl:Class ;
+    rdfs:label "Striker" ;
+    rdfs:subClassOf ekg:Forward .
+
+ekg:Tackle a owl:Class ;
+    rdfs:label "Tackle" ;
+    rdfs:subClassOf ekg:Defensive .
+
+ekg:TakeOn a owl:Class ;
+    rdfs:label "TakeOn" ;
+    rdfs:subClassOf ekg:Dribble .
+
+ekg:ThroughBall a owl:Class ;
+    rdfs:label "ThroughBall" ;
+    rdfs:subClassOf ekg:Pass .
+
+ekg:ThrowIn a owl:Class ;
+    rdfs:label "ThrowIn" ;
+    rdfs:subClassOf ekg:SetPiece .
+
+ekg:Trip a owl:Class ;
+    rdfs:label "Trip" ;
+    rdfs:subClassOf ekg:Foul .
+
+ekg:VARDecision a owl:Class ;
+    rdfs:label "VARDecision" ;
+    rdfs:subClassOf ekg:RefereeDecision .
+
+ekg:Wing a owl:Class ;
+    rdfs:label "Wing" ;
+    rdfs:subClassOf ekg:PitchZone .
+
+ekg:YellowCard a owl:Class ;
+    rdfs:label "YellowCard" ;
+    rdfs:subClassOf ekg:Card .
+
+ekg:assistedBy a owl:ObjectProperty ;
+    rdfs:label "assistedBy" ;
+    rdfs:domain ekg:Goal ;
+    rdfs:range ekg:Player .
+
+ekg:detectedJersey a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event ;
+    rdfs:range xsd:integer .
+
+ekg:fouledPlayer a owl:ObjectProperty ;
+    rdfs:label "fouledPlayer" ;
+    rdfs:domain ekg:Foul ;
+    rdfs:range ekg:Player .
+
+ekg:hasAddedTime a owl:DatatypeProperty ;
+    rdfs:domain ekg:Period ;
+    rdfs:range xsd:integer .
+
+ekg:hasAge a owl:DatatypeProperty ;
+    rdfs:domain ekg:Person ;
+    rdfs:range xsd:integer .
+
+ekg:hasAttendance a owl:DatatypeProperty ;
+    rdfs:range xsd:integer .
+
+ekg:hasAwayTeam a owl:ObjectProperty ;
+    rdfs:label "hasAwayTeam" ;
+    rdfs:domain ekg:Match ;
+    rdfs:range ekg:Team .
+
+ekg:hasBallVisible a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event ;
+    rdfs:range xsd:boolean .
+
+ekg:hasBodyPart a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasCardReason a owl:DatatypeProperty ;
+    rdfs:domain ekg:Card .
+
+ekg:hasDate a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+ekg:hasDescription a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasDetectedColor a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasDetectedKitPattern a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasDetectedShortsColor a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasDetectedSocksColor a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasEndTime a owl:DatatypeProperty ;
+    rdfs:domain ekg:Period ;
+    rdfs:range xsd:integer .
+
+ekg:hasEvent a owl:ObjectProperty ;
+    rdfs:label "hasEvent" ;
+    rdfs:domain ekg:Match ;
+    rdfs:range ekg:Event .
+
+ekg:hasEventType a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasExpectedGoals a owl:DatatypeProperty ;
+    rdfs:domain ekg:Shot ;
+    rdfs:range xsd:decimal .
+
+ekg:hasFinalScoreAway a owl:DatatypeProperty ;
+    rdfs:range xsd:integer .
+
+ekg:hasFinalScoreHome a owl:DatatypeProperty ;
+    rdfs:range xsd:integer .
+
+ekg:hasFormation a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team .
+
+ekg:hasFoulType a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasFoundedYear a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team ;
+    rdfs:range xsd:integer .
+
+ekg:hasFullText a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasHalfTimeScoreAway a owl:DatatypeProperty ;
+    rdfs:range xsd:integer .
+
+ekg:hasHalfTimeScoreHome a owl:DatatypeProperty ;
+    rdfs:range xsd:integer .
+
+ekg:hasHeight a owl:DatatypeProperty ;
+    rdfs:domain ekg:Player ;
+    rdfs:range xsd:decimal .
+
+ekg:hasHomeTeam a owl:ObjectProperty ;
+    rdfs:label "hasHomeTeam" ;
+    rdfs:domain ekg:Match ;
+    rdfs:range ekg:Team .
+
+ekg:hasJerseyColor a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team .
+
+ekg:hasJerseyNumber a owl:DatatypeProperty ;
+    rdfs:domain ekg:Player ;
+    rdfs:range xsd:integer .
+
+ekg:hasKickoffTime a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+ekg:hasKitPattern a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team .
+
+ekg:hasLeague a owl:DatatypeProperty .
+
+ekg:hasMarketValue a owl:DatatypeProperty ;
+    rdfs:domain ekg:Player ;
+    rdfs:range xsd:decimal .
+
+ekg:hasMinute a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event ;
+    rdfs:range xsd:decimal .
+
+ekg:hasName a owl:DatatypeProperty .
+
+ekg:hasNationality a owl:DatatypeProperty ;
+    rdfs:domain ekg:Person .
+
+ekg:hasOnTarget a owl:DatatypeProperty ;
+    rdfs:domain ekg:Shot ;
+    rdfs:range xsd:boolean .
+
+ekg:hasOutcome a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasPassDirection a owl:DatatypeProperty ;
+    rdfs:domain ekg:Pass .
+
+ekg:hasPassDistance a owl:DatatypeProperty ;
+    rdfs:domain ekg:Pass ;
+    rdfs:range xsd:decimal .
+
+ekg:hasPassSuccess a owl:DatatypeProperty ;
+    rdfs:domain ekg:Pass ;
+    rdfs:range xsd:boolean .
+
+ekg:hasPeriodNumber a owl:DatatypeProperty ;
+    rdfs:range xsd:integer .
+
+ekg:hasPitchZone a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasPossessionAway a owl:DatatypeProperty ;
+    rdfs:range xsd:decimal .
+
+ekg:hasPossessionHome a owl:DatatypeProperty ;
+    rdfs:range xsd:decimal .
+
+ekg:hasPreferredFoot a owl:DatatypeProperty ;
+    rdfs:domain ekg:Player .
+
+ekg:hasPrimaryColor a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team .
+
+ekg:hasSeason a owl:DatatypeProperty .
+
+ekg:hasSecond a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event ;
+    rdfs:range xsd:integer .
+
+ekg:hasSecondaryColor a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team .
+
+ekg:hasShortName a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team .
+
+ekg:hasShortsColor a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team .
+
+ekg:hasShotAngle a owl:DatatypeProperty ;
+    rdfs:domain ekg:Shot ;
+    rdfs:range xsd:decimal .
+
+ekg:hasShotPower a owl:DatatypeProperty ;
+    rdfs:domain ekg:Shot ;
+    rdfs:range xsd:decimal .
+
+ekg:hasSocksColor a owl:DatatypeProperty ;
+    rdfs:domain ekg:Team .
+
+ekg:hasStartTime a owl:DatatypeProperty ;
+    rdfs:domain ekg:Period ;
+    rdfs:range xsd:integer .
+
+ekg:hasTeamSide a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasTime a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event .
+
+ekg:hasVenue a owl:DatatypeProperty .
+
+ekg:hasWeather a owl:DatatypeProperty .
+
+ekg:hasWeight a owl:DatatypeProperty ;
+    rdfs:domain ekg:Player ;
+    rdfs:range xsd:decimal .
+
+ekg:hasXCoord a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event ;
+    rdfs:range xsd:decimal .
+
+ekg:hasYCoord a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event ;
+    rdfs:range xsd:decimal .
+
+ekg:inMatch a owl:ObjectProperty ;
+    rdfs:label "inMatch" ;
+    rdfs:domain ekg:Event ;
+    rdfs:range ekg:Match .
+
+ekg:inPeriod a owl:ObjectProperty ;
+    rdfs:label "inPeriod" ;
+    rdfs:domain ekg:Event ;
+    rdfs:range ekg:Period .
+
+ekg:inZone a owl:ObjectProperty ;
+    rdfs:label "inZone" ;
+    rdfs:domain ekg:Event ;
+    rdfs:range ekg:PitchZone .
+
+ekg:involvedTeam a owl:ObjectProperty ;
+    rdfs:label "involvedTeam" ;
+    rdfs:domain ekg:Event ;
+    rdfs:range ekg:Team .
+
+ekg:isMatched a owl:DatatypeProperty ;
+    rdfs:domain ekg:Event ;
+    rdfs:range xsd:boolean .
+
+ekg:isPerformedBy a owl:ObjectProperty ;
+    rdfs:label "isPerformedBy" ;
+    rdfs:domain ekg:Event ;
+    rdfs:range ekg:Player ;
+    owl:inverseOf ekg:performed .
+
+ekg:managedBy a owl:ObjectProperty ;
+    rdfs:label "managedBy" ;
+    rdfs:domain ekg:Team ;
+    rdfs:range ekg:Manager .
+
+ekg:ofMatch a owl:ObjectProperty ;
+    rdfs:label "ofMatch" ;
+    rdfs:domain ekg:Period ;
+    rdfs:range ekg:Match ;
+    owl:inverseOf ekg:hasPeriod .
+
+ekg:officiatedBy a owl:ObjectProperty ;
+    rdfs:label "officiatedBy" ;
+    rdfs:domain ekg:Match ;
+    rdfs:range ekg:Referee .
+
+ekg:participatedIn a owl:ObjectProperty ;
+    rdfs:label "participatedIn" ;
+    rdfs:domain ekg:Player ;
+    rdfs:range ekg:Match .
+
+ekg:passedTo a owl:ObjectProperty ;
+    rdfs:label "passedTo" ;
+    rdfs:domain ekg:Pass ;
+    rdfs:range ekg:Player .
+
+ekg:playsFor a owl:ObjectProperty ;
+    rdfs:label "playsFor" ;
+    rdfs:domain ekg:Player ;
+    rdfs:range ekg:Team ;
+    owl:inverseOf ekg:hasPlayer .
+
+ekg:precedes a owl:ObjectProperty ;
+    rdfs:label "precedes" ;
+    rdfs:domain ekg:Event ;
+    rdfs:range ekg:Event ;
+    owl:inverseOf ekg:precededBy .
+
+ekg:replacedBy a owl:ObjectProperty ;
+    rdfs:label "replacedBy" ;
+    rdfs:domain ekg:Substitution ;
+    rdfs:range ekg:Player .
+
+ekg:replaces a owl:ObjectProperty ;
+    rdfs:label "replaces" ;
+    rdfs:domain ekg:Substitution ;
+    rdfs:range ekg:Player .
+
+ekg:savedBy a owl:ObjectProperty ;
+    rdfs:label "savedBy" ;
+    rdfs:domain ekg:Shot ;
+    rdfs:range ekg:Goalkeeper .
+
+ekg:triggered a owl:ObjectProperty ;
+    rdfs:label "triggered" ;
+    rdfs:domain ekg:Event ;
+    rdfs:range ekg:Event .
+
+ekg:validFrom a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+ekg:validUntil a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+ekg:Goalkeeper a owl:Class ;
+    rdfs:label "Goalkeeper" ;
+    rdfs:subClassOf ekg:Player .
+
+ekg:Manager a owl:Class ;
+    rdfs:label "Manager" ;
+    rdfs:subClassOf ekg:Person .
+
+ekg:Referee a owl:Class ;
+    rdfs:label "Referee" ;
+    rdfs:subClassOf ekg:Person .
+
+ekg:hasPeriod a owl:ObjectProperty ;
+    rdfs:label "hasPeriod" ;
+    rdfs:range ekg:Period .
+
+ekg:hasPlayer a owl:ObjectProperty ;
+    rdfs:label "hasPlayer" ;
+    rdfs:domain ekg:Team ;
+    rdfs:range ekg:Player .
+
+ekg:performed a owl:ObjectProperty ;
+    rdfs:label "performed" ;
+    rdfs:domain ekg:Player ;
+    rdfs:range ekg:Event .
+
+ekg:precededBy a owl:ObjectProperty ;
+    rdfs:label "precededBy" ;
+    rdfs:domain ekg:Event ;
+    rdfs:range ekg:Event .
+
+ekg:Dribble a owl:Class ;
+    rdfs:label "Dribble" ;
+    rdfs:subClassOf ekg:PlayerAction .
+
+ekg:Duel a owl:Class ;
+    rdfs:label "Duel" ;
+    rdfs:subClassOf ekg:PlayerAction .
+
+ekg:Substitution a owl:Class ;
+    rdfs:label "Substitution" ;
+    rdfs:subClassOf ekg:MatchManagement .
+
+ekg:Card a owl:Class ;
+    rdfs:label "Card" ;
+    rdfs:subClassOf ekg:RefereeDecision .
+
+ekg:GoalkeeperAction a owl:Class ;
+    rdfs:label "GoalkeeperAction" ;
+    rdfs:subClassOf ekg:PlayerAction .
+
+ekg:Defender a owl:Class ;
+    rdfs:label "Defender" ;
+    rdfs:subClassOf ekg:Player .
+
+ekg:Defensive a owl:Class ;
+    rdfs:label "Defensive" ;
+    rdfs:subClassOf ekg:PlayerAction .
+
+ekg:Forward a owl:Class ;
+    rdfs:label "Forward" ;
+    rdfs:subClassOf ekg:Player .
+
+ekg:MatchManagement a owl:Class ;
+    rdfs:label "MatchManagement" ;
+    rdfs:subClassOf ekg:Event .
+
+ekg:Midfielder a owl:Class ;
+    rdfs:label "Midfielder" ;
+    rdfs:subClassOf ekg:Player .
+
+ekg:RefereeDecision a owl:Class ;
+    rdfs:label "RefereeDecision" ;
+    rdfs:subClassOf ekg:Event .
+
+ekg:Goal a owl:Class ;
+    rdfs:label "Goal" ;
+    rdfs:subClassOf ekg:PlayerAction .
+
+ekg:Person a owl:Class ;
+    rdfs:label "Person" ;
+    rdfs:comment "Any human in the football context." .
+
+ekg:SetPiece a owl:Class ;
+    rdfs:label "SetPiece" ;
+    rdfs:subClassOf ekg:Event .
+
+ekg:Foul a owl:Class ;
+    rdfs:label "Foul" ;
+    rdfs:subClassOf ekg:PlayerAction .
+
+ekg:PitchZone a owl:Class ;
+    rdfs:label "PitchZone" ;
+    rdfs:comment "A spatial region on the football pitch." .
+
+ekg:PlayerAction a owl:Class ;
+    rdfs:label "PlayerAction" ;
+    rdfs:subClassOf ekg:Event .
+
+ekg:Pass a owl:Class ;
+    rdfs:label "Pass" ;
+    rdfs:subClassOf ekg:PlayerAction .
+
+ekg:Shot a owl:Class ;
+    rdfs:label "Shot" ;
+    rdfs:subClassOf ekg:PlayerAction .
+
+ekg:Match a owl:Class ;
+    rdfs:label "Match" ;
+    rdfs:comment "A football match — the 90-minute container." .
+
+ekg:Period a owl:Class ;
+    rdfs:label "Period" ;
+    rdfs:comment "A half or extra-time period within a match." .
+
+ekg:Team a owl:Class ;
+    rdfs:label "Team" ;
+    rdfs:comment "A football club fielding players in a match." .
+
+ekg:Player a owl:Class ;
+    rdfs:label "Player" ;
+    rdfs:subClassOf ekg:Person .
+
+ekg:Event a owl:Class ;
+    rdfs:label "Event" ;
+    rdfs:comment "Anything that happens during a match." .
+

@@ -148,35 +148,41 @@ All applied. Full detail in `log_fix/fix_NNN_*.md`.
 | 045 | `xsd:date` → `xsd:dateTime` across T-Box, `PROP_TYPES`, and `typed_literal()`. HermiT only supports the OWL 2 datatype map (which excludes `xsd:date`). Plain dates like `"2019-10-01"` are coerced to `"2019-10-01T00:00:00Z"`. `repair_literal_types.py` now has an explicit pass to convert any remaining `xsd:date` literals in existing data |
 | 046 | Density-biased frame sampling (p=2.5): ~60% of frames in middle 33% of clip, sparse at edges. Replaces end-biased sampling (`t**0.7`). Pairs with event-anchored evaluation where the event is at clip center. `NUM_FRAMES` lowered 32 → 30 |
 | 047 | `commentator.py` event-anchored mode: JAIST SN-Long style 5-example SYSTEM_PROMPT (2-3 sentence target, no past-event references); `agent_commentate()` user prompt feeds only current event KG facts (player, team, action, body_part, pitch_zone, outcome, VLM description, match name); past-event tool schemas renamed `TOOLS_V1` and excluded from LLM call; standalone mode SPARQL query extended to fetch `body_part`, `pitchZone`, `outcome`; `SimpleNamespace` and events dict updated accordingly |
-| 048 | `event_anchored_eval.py` — new evaluation pipeline. Uses JAIST GT event times as clip anchors (60s centered on event), runs VLM, runs commentator in single-event mode, saves AI text paired with GT. Bypasses sliding-window detection for direct apples-to-apples comparison with JAIST SN-Long benchmark |
+| 048 | `event_anchored_eval.py` — GT-anchored clip evaluation (moved to `deprecated/` in fix 051; superseded by sliding-window evaluation) |
+| 050 | `convert_jaist_gt.py` rewritten: pure local-filesystem reads from `~/work/s2616011/Augmented_Soccer/Dataset/short/`. No GitHub API. Skips matches with no video folder. Output: `data/sn_long/<season> - <match>/human_commentary.json` |
+| 051 | Cleanup: 9 files moved to `deprecated/` — T-Box migration scripts (fix_datatypes, repair_literal_types, strip_reification, migrate_to_new_tbox) already applied; T-DEED dropped; event_anchored_eval superseded by sliding-window eval; EFL-era GT scrapers (3) replaced by JAIST converter |
+| 052 | `.gitignore` expanded: ekg.ttl, processed_matches.json, videos, auto-generated GT, evaluation reports, logs, `__pycache__`. Re-runnable artifacts removed from git history |
 
 ---
 
 ## Running the Pipeline
 
 ```bash
-python main.py                    # all matches in data/
-python main.py --test             # 5 clips, 224p, first match only
-python main.py --clips 20         # first 20 clips per match
-python main.py --match "Blackburn" # specific match (partial name ok)
-python main.py --espn-every 3     # ESPN tick every 3 clips
+python main.py                     # all matches in data/sn_long/
+python main.py --test              # 5 clips, 224p, first match only
+python main.py --clips 20          # first 20 clips per match
+python main.py --match "Burnley"   # specific match (partial name ok)
+python main.py --espn-every 3      # ESPN tick every 3 clips
 ```
 
-### Running Event-Anchored Evaluation
+### Running JAIST Benchmark Evaluation
 
 ```bash
-# Step 1: Download JAIST SN-Short GT → data/sn_short/<league>/<match>/human_commentary.json
+# Step 1: Convert JAIST SN-Short GT (one-time, re-run after new video downloads)
 python src/commentator/convert_jaist_gt.py
 
-# Step 2: Add 720p.mp4 for each match (SoccerNet licence — download separately)
+# Step 2: Reset checkpoint and run pipeline on sample matches
+echo '[]' > data/kg_output/processed_matches.json
+for m in "Burnley" "Dortmund" "Newcastle"; do
+    python main.py --match "$m"
+done
 
-# Step 3: Run anchored evaluation (VLM + commentator per GT event)
-python src/commentator/event_anchored_eval.py --data-dir data/sn_short/
-
-# Step 4: Score against JAIST GT
-python src/commentator/evaluate_commentary.py \
-    --data-dir data/sn_short/ \
-    --ai-file ai_commentary_anchored.json
+# Step 3: Evaluate AI commentary against JAIST GT per match
+for m in "Burnley" "Dortmund" "Newcastle"; do
+    python src/commentator/evaluate_commentary.py \
+        --match "$m" \
+        --gt-file human_commentary.json
+done
 ```
 
 ---
@@ -185,21 +191,17 @@ python src/commentator/evaluate_commentary.py \
 
 | Path | Description |
 |------|-------------|
-| `data/<match>/720p.mp4` | Full resolution match video |
-| `data/<match>/224p.mp4` | Low resolution (used in --test mode) |
-| `data/<match>/Labels-ball.json` | Ball tracking ground truth (frame-level annotations) |
+| `data/sn_long/<match>/720p.mp4` | Full resolution match video (gitignored) |
+| `data/sn_long/<match>/224p.mp4` | Low resolution (used in --test mode, gitignored) |
+| `data/sn_long/<match>/human_commentary.json` | JAIST SN-Short GT (written by convert_jaist_gt.py, gitignored) |
+| `data/sn_long/<match>/ai_commentary.json` | AI commentary from sliding-window pipeline |
 | `data/blackburn_forest_2019-10-01.csv` | ESPN fallback CSV for test match |
 | `ekg_tbox.ttl` | T-Box schema (loaded by `ekg_schema.py` at startup) |
-| `data/ekg.ttl` | RDF/OWL knowledge graph (Turtle format) |
+| `data/kg_output/ekg.ttl` | RDF/OWL knowledge graph — gitignored, rebuilt each run |
 | `data/kg_output/nodes.csv` | KG nodes: players, teams, events, matches |
 | `data/kg_output/edges.csv` | KG edges: PERFORMED, PLAYS_FOR, PRECEDED_BY, etc. |
-| `data/commentator_output/` | Commentator logs (planned) |
 | `data/commentator_output/evaluation_<match>_multitrack.txt` | Per-match multi-GT evaluation |
 | `data/commentator_output/evaluation_multitrack_aggregate.txt` | Aggregate across all matches |
-| `data/logs/` | Pipeline run logs |
-| `data/kg_output/ekg_pre_fix_035.ttl.bak` | Auto-backup written by `strip_reification.py` before in-place clean |
-| `data/<match>/anchored_clips/event_<i>.mp4` | 60s clip centered on GT event i |
-| `data/<match>/ai_commentary_anchored.json` | AI commentary per GT event (output of event_anchored_eval.py) |
 
 ---
 

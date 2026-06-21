@@ -19,6 +19,7 @@ Run:
     python main.py --espn-every 3     # ESPN tick every 3 clips
 """
 
+import os
 import sys
 import time
 import logging
@@ -684,7 +685,20 @@ if __name__ == "__main__":
     parser.add_argument("--espn-every", type=int, default=5)
     parser.add_argument("--clip-dur",   type=int, default=CLIP_DURATION)
     parser.add_argument("--clip-step",  type=int, default=CLIP_STEP)
+    parser.add_argument("--exp-name",      type=str, default="",
+                        help="Experiment name tag — passed to extract step (default: off)")
+    parser.add_argument("--use-cot",       action="store_true",
+                        help="Chain-of-thought commentary (sets EXP_USE_COT=1)")
+    parser.add_argument("--force-history", action="store_true",
+                        help="Inject player KG history before each prompt (sets EXP_FORCE_HISTORY=1)")
     args = parser.parse_args()
+
+    # Set experiment env vars before start_commentator() — commentator.py
+    # reads these lazily inside agent_commentate(), not at import time.
+    if args.use_cot:
+        os.environ["EXP_USE_COT"] = "1"
+    if args.force_history:
+        os.environ["EXP_FORCE_HISTORY"] = "1"
 
     log_path = setup_logging(DATA_DIR / "logs")
     print(f"  Logging to: {log_path}")

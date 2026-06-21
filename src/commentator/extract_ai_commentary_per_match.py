@@ -243,6 +243,20 @@ def consume_match(kg_events: list[dict], log_lines: list[dict],
 # ── main ───────────────────────────────────────────────────────────────────
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Extract per-match ai_commentary[_NAME].json from KG + log."
+    )
+    ap.add_argument("--exp-name", default="",
+                    help="Experiment tag — writes ai_commentary_<name>.json "
+                         "instead of ai_commentary.json")
+    ap.add_argument("--match", default=None,
+                    help="Partial folder name to process only one match")
+    cli = ap.parse_args()
+
+    out_filename = (f"ai_commentary_{cli.exp_name}.json"
+                    if cli.exp_name else "ai_commentary.json")
+
     if not TTL_PATH.exists():
         print(f"TTL not found: {TTL_PATH}")
         sys.exit(1)
@@ -277,15 +291,18 @@ def main():
                   f"{len(events):3d} KG events — no matching folder")
             continue
 
+        if cli.match and cli.match.lower() not in folder.name.lower():
+            continue
+
         ai_entries = consume_match(events, log_lines)
-        out_path   = folder / "ai_commentary.json"
+        out_path   = folder / out_filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(ai_entries, f, indent=2, ensure_ascii=False)
 
         print(f"  {folder.name[:50]:<52} : "
               f"{len(events):3d} KG events → "
-              f"{len(ai_entries):3d} matched → ai_commentary.json saved")
+              f"{len(ai_entries):3d} matched → {out_filename} saved")
 
     unused = sum(1 for l in log_lines if not l["used"])
     print(f"\n  Unclaimed log lines: {unused}/{len(log_lines)} "

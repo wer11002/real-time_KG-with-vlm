@@ -14,7 +14,9 @@ Usage (wired from main.py):
 """
 
 import json
+import os
 import queue
+import re
 import threading
 import traceback
 from pathlib import Path
@@ -398,6 +400,17 @@ RULES:
 8. Never use emojis or non-English characters.
 """
 
+# Prepended to SYSTEM_PROMPT when EXP_USE_COT=1 (Level 2 experiment).
+# Read lazily inside agent_commentate() so the env var is effective even
+# though commentator.py is imported at the top of main.py before arg parsing.
+_COT_PREFIX = (
+    "Before writing commentary, reason step by step:\n"
+    "1. Who performed the action and what exactly did they do?\n"
+    "2. What is the context: pitch zone, body part used, and outcome?\n"
+    "3. Why is this moment significant in the match?\n"
+    "Then write 2-3 sentences of broadcast commentary.\n\n"
+)
+
 
 def _word_count(text: str) -> int:
     """Cheap whitespace-tokenised word count for the length guard."""
@@ -484,10 +497,34 @@ def agent_commentate(event, ttl_path: str, extra_hint: str = "") -> str:
     if extra_hint:
         user_content += f"\n\n{extra_hint}"
 
+    # Level 2 (EXP_USE_COT): prepend chain-of-thought reasoning block.
+    # Read env var here (not at module load) so main.py's arg parsing runs first.
+    system_prompt = SYSTEM_PROMPT
+    if os.environ.get("EXP_USE_COT") == "1":
+        system_prompt = _COT_PREFIX + system_prompt
+
     messages = [
-        {"role": "system",  "content": SYSTEM_PROMPT},
+        {"role": "system",  "content": system_prompt},
         {"role": "user",    "content": user_content},
     ]
+
+    # Level 3 (EXP_FORCE_HISTORY): inject player's prior events from KG as
+    # an extra system message immediately before the user message.
+    if os.environ.get("EXP_FORCE_HISTORY") == "1" and player:
+        _pid = re.sub(r"[^a-z0-9]+", "_", player.lower().strip()).strip("_")
+        _player_uri = str(INST[f"player_{_pid}"])
+        try:
+            _history = get_player_history(ttl_path, _player_uri)
+        except Exception:
+            _history = []
+        messages.insert(1, {
+            "role"   : "system",
+            "content": (
+                f"Prior events by {player} in this match "
+                f"(use for context, do NOT explicitly reference them): "
+                f"{json.dumps(_history, ensure_ascii=False)}"
+            ),
+        })
 
     for _round in range(MAX_TOOL_ROUNDS):
         try:
